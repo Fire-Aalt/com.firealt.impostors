@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 500ee772259de594cb04f8c08ca5dffc, type: 3}
+  m_Name: Capture Settings
+  m_EditorClassIdentifier: Impostors.Editor::Impostors.Editor.ImpostorBakeSettings
+  Frames: 4
+  Resolution: 64
+  Border: 2
+  Supersampling: 1
+  SourceLod: 0
+  AmbientSamples: 4
+  SelfShadowing: 1
+  SelfShadowQuality: 1

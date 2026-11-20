@@ -1,0 +1,96 @@
+#pragma kernel BakeFrame
+#pragma target 5.0
+
+Texture2DArray<float4> _BaseArray;
+Texture2DArray<float> _DepthArray;
+Texture2D<float4> _FrameRectangles;
+RWTexture3D<float> _VisibilityVolume;
+
+float3 _BoundsMin;
+float3 _BoundsSize;
+float3 _CaptureCenter;
+float3 _VoxelWorldSize;
+float _CaptureRadius;
+float _Border;
+uint _Frames;
+uint _Frame;
+int _HasFrameRectangles;
+int2 _CaptureResolution;
+int _BaseMip;
+int3 _InteriorSize;
+int3 _BrickSize;
+int3 _InteriorPadding;
+
+float3 HemiDecode(float2 uv)
+{
+    float2 p = uv * 2 - 1;
+    float x = (p.x + p.y) * 0.5;
+    float z = (p.x - p.y) * 0.5;
+    return normalize(float3(x, 1 - abs(x) - abs(z), z));
+}
+
+[numthreads(8, 8, 8)]
+void BakeFrame(uint3 index : SV_DispatchThreadID)
+{
+    if (any(index >= (uint3)_BrickSize))
+    {
+        return;
+    }
+
+    // Replicated borders align X/Y bricks to compression blocks. Interior endpoints include
+    // the exact bake bounds, matching runtime's (1.5 + uv * (size - 1)) lookup.
+    float3 coordinate = clamp((float3)index - _InteriorPadding, 0, (float3)_InteriorSize - 1)
+        / ((float3)_InteriorSize - 1);
+    float3 position = _BoundsMin + coordinate * _BoundsSize;
+    float3 direction = HemiDecode(float2(_Frame % _Frames, _Frame / _Frames) / (_Frames - 1));
+    float3 right = normalize(cross(direction, abs(direction.y) > 0.999
+        ? float3(0, 0, 1) : float3(0, 1, 0)));
+    float3 up = cross(right, direction);
+    float4 rectangle = float4(1 - 2 * _Border, 1 - 2 * _Border, _Border, _Border);
+    if (_HasFrameRectangles != 0)
+    {
+        rectangle = _FrameRectangles.Load(int3(_Frame, 0, 0));
+    }
+
+    float3 relative = (position - _CaptureCenter) / (2 * _CaptureRadius);
+    float2 uv = (float2(dot(relative, right), dot(relative, up)) + 0.5)
+        * rectangle.xy + rectangle.zw;
+    float receiver = dot(relative, direction) + 0.5;
+    float2 texelPosition = uv * _CaptureResolution;
+    float2 footprint = float2(dot(abs(right), _VoxelWorldSize), dot(abs(up), _VoxelWorldSize))
+        * rectangle.xy * _CaptureResolution / (2 * _CaptureRadius);
+    float2 sampleSpacing = max(float2(1, 1), footprint * 0.25);
+    const float weights[5] = { 1.0 / 16.0, 4.0 / 16.0, 6.0 / 16.0, 4.0 / 16.0, 1.0 / 16.0 };
+
+    // Do not let interpolation across a volume cell classify its outer leaf
+    // shell as fully shadowed. Bias includes that cell's projected half extent.
+    // A two-texel receiver footprint reduces false self-occlusion on the
+    // captured outer shell, without storing any cascade-resolution dependency.
+    float captureBias = 2.0 / (_CaptureResolution.x * max(min(rectangle.x, rectangle.y), 0.0001));
+    float voxelHalfDepth = dot(abs(direction), _VoxelWorldSize) * 0.5 / (2 * _CaptureRadius);
+    float bias = max(captureBias, voxelHalfDepth);
+    float transition = max(voxelHalfDepth, 1.0 / 65535.0);
+    float occlusion = 0;
+    if (all(uv >= _Border) && all(uv <= 1 - _Border))
+    {
+        // Integrate the voxel's projected footprint rather than a single capture
+        // pixel. A deterministic 5x5 binomial kernel spans at least four capture
+        // texels, widening with each axis's projected voxel size. Compare depths
+        // before filtering; uncovered texels retain their full kernel weight.
+        [unroll] for (int y = 0; y < 5; y++)
+        {
+            [unroll] for (int x = 0; x < 5; x++)
+            {
+                float2 samplePosition = texelPosition + float2(x - 2, y - 2) * sampleSpacing;
+                int2 texel = clamp((int2)floor(samplePosition), int2(0, 0), _CaptureResolution - 1);
+                float caster = _DepthArray.Load(int4(texel, _Frame, 0));
+                float coverage = _BaseArray.Load(int4(texel, _Frame, _BaseMip)).a;
+                float comparison = smoothstep(bias, bias + transition, caster - receiver);
+                occlusion += comparison * coverage * weights[x] * weights[y];
+            }
+        }
+    }
+
+    int3 brick = int3(_Frame % 4, (_Frame / 4) % 4, _Frame / 16);
+    _VisibilityVolume[brick * _BrickSize + (int3)index] = saturate(1 - occlusion);
+}

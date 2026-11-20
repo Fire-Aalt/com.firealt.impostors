@@ -1,0 +1,98 @@
+using Impostors.Data;
+using Unity.Collections;
+using Unity.Mathematics;
+using UnityEngine.Rendering;
+
+namespace Impostors
+{
+    public static class ImpostorLodSelection
+    {
+        public const float DISTANCE_EPSILON = 0.000001f;
+        private const int MAXIMUM_OPACITY = 127;
+        private const int LOCAL_INDEX_MASK = 0x00ffffff;
+        private const int FADE_SHIFT = 24;
+        private const int DEPTH_BUCKET_COUNT = 8;
+
+        public static float CameraFactor(LODParameters parameters, float bias)
+        {
+            if (!math.isfinite(bias) || bias <= 0)
+            {
+                return 0;
+            }
+
+            if (parameters.isOrthographic)
+            {
+                bool validSize = parameters.orthoSize > 0 && math.isfinite(parameters.orthoSize);
+                return validSize ? bias / (2 * parameters.orthoSize) : 0;
+            }
+
+            float fieldOfView = parameters.fieldOfView;
+            bool validFieldOfView = fieldOfView is > 0 and < 180 && math.isfinite(fieldOfView);
+            return validFieldOfView ? bias / (2 * math.tan(math.radians(fieldOfView) * 0.5f)) : 0;
+        }
+
+        public static LodSelection Select(NativeArray<RenderLod> levels, int first, int count, float height,
+            float distanceSquared, float cameraFactor, bool orthographic)
+        {
+            if (count <= 1 || cameraFactor <= 0)
+            {
+                return new LodSelection { Level = first, HighDetailOpacity = 1 };
+            }
+
+            float numerator = height * cameraFactor;
+            float screenHeight = orthographic
+                ? numerator
+                : numerator * math.rsqrt(math.max(distanceSquared, DISTANCE_EPSILON));
+            for (int level = first; level < first + count - 1; level++)
+            {
+                RenderLod transition = levels[level];
+                float relativeHeight = screenHeight / transition.TransitionScreenHeight;
+                if (relativeHeight >= 1)
+                {
+                    return new LodSelection { Level = level, HighDetailOpacity = 1 };
+                }
+
+                float fadeEnd = 1 - transition.FadeWidth;
+                if (transition.FadeWidth == 0 || relativeHeight <= fadeEnd)
+                {
+                    continue;
+                }
+
+                float opacity = math.saturate((relativeHeight - fadeEnd) / transition.FadeWidth);
+                if (opacity > 0)
+                {
+                    return new LodSelection { Level = level, HighDetailOpacity = opacity };
+                }
+            }
+
+            return new LodSelection { Level = first + count - 1, HighDetailOpacity = 1 };
+        }
+
+        public static byte QuantizeOpacity(float highOpacity)
+        {
+            return (byte)math.clamp((int)math.ceil(highOpacity * MAXIMUM_OPACITY), 1, MAXIMUM_OPACITY);
+        }
+
+        /// <summary>Packs a visible-instance index with the signed crossfade value BRG reads from its top byte.</summary>
+        public static int PackIndex(int localIndex, byte magnitude, bool lowDetail)
+        {
+            int fade = lowDetail ? -magnitude : magnitude;
+            return (localIndex & LOCAL_INDEX_MASK) | ((fade & 255) << FADE_SHIFT);
+        }
+
+        /// <summary>Buckets by the float exponent of the squared distance, so each bucket doubles the distance range.</summary>
+        public static int DepthBucket(float distanceSquared)
+        {
+            int exponent = ((math.asint(distanceSquared) >> 23) & 255) - 127;
+            return math.clamp((exponent >> 1) - 5, 0, DEPTH_BUCKET_COUNT - 1);
+        }
+
+        public static void DistanceRange(RenderBounds bounds, float3 origin, out float minimumSquared,
+            out float maximumSquared)
+        {
+            float3 offset = math.abs(bounds.Center - origin);
+            minimumSquared = math.lengthsq(math.max(offset - bounds.Extents, 0));
+            maximumSquared = math.lengthsq(offset + bounds.Extents);
+        }
+    }
+}

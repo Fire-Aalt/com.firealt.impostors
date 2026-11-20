@@ -1,0 +1,24 @@
+{
+    "name": "EntityPainter.Editor",
+    "rootNamespace": "EntityPainter.Editor",
+    "references": [
+        "EntityPainter",
+        "Unity.Collections",
+        "Unity.Entities",
+        "Unity.Mathematics",
+        "Unity.Scenes",
+        "Unity.Scenes.Editor",
+        "Unity.Transforms"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

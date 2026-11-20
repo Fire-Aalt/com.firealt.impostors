@@ -1,0 +1,40 @@
+{
+  "name": "com.fire.impostors",
+  "version": "0.1.0-exp.1",
+  "displayName": "Impostors",
+  "description": "Prefab impostor baking and ECS-owned BatchRendererGroup rendering for URP, plus an Entity Painter for painting baked prefabs as entities into SubScenes.\n\nExperimental: APIs, serialized data and bake formats may change between releases.",
+  "unity": "6000.6",
+  "unityRelease": "7f1",
+  "license": "MIT",
+  "author": {
+    "name": "Maksim Krasutski",
+    "url": "https://github.com/Fire-Aalt"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fire-Aalt/com.firealt.impostors.git"
+  },
+  "documentationUrl": "https://github.com/Fire-Aalt/com.firealt.impostors/blob/main/README.md",
+  "changelogUrl": "https://github.com/Fire-Aalt/com.firealt.impostors/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/Fire-Aalt/com.firealt.impostors/blob/main/LICENSE.md",
+  "keywords": ["impostors", "rendering", "URP", "ECS", "BatchRendererGroup", "LOD"],
+  "dependencies": {
+    "com.unity.burst": "2.0.0",
+    "com.unity.collections": "6.6.0",
+    "com.unity.entities": "6.6.0",
+    "com.unity.render-pipelines.core": "17.6.0",
+    "com.unity.render-pipelines.universal": "17.6.0",
+    "com.unity.shadergraph": "17.6.0",
+    "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0",
+    "com.unity.modules.screencapture": "1.0.0",
+    "com.unity.modules.imageconversion": "1.0.0"
+  },
+  "samples": [
+    {
+      "displayName": "Benchmark",
+      "description": "Two primitive props with mesh LODs and baked impostors in a 100-placement scene, a Forward+ URP pipeline, and editor tools for scaling, measuring and building benchmarks.",
+      "path": "Samples~/Benchmark"
+    }
+  ]
+}

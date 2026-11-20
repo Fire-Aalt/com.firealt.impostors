@@ -1,0 +1,28 @@
+#pragma target 5.0
+#pragma multi_compile _ LOD_FADE_CROSSFADE
+#pragma vertex Vert
+#pragma fragment Frag
+#pragma multi_compile_instancing
+#pragma shader_feature_local _IMPOSTOR_SELF_SHADOW_VOLUME
+#pragma shader_feature_local _IMPOSTOR_MATERIAL_ADJUSTMENTS
+#pragma shader_feature_local _IMPOSTOR_COLOR_ADJUSTMENTS
+#pragma shader_feature_local_fragment _IMPOSTOR_REFLECTANCE_ADJUSTMENTS
+#pragma shader_feature_local_fragment _SPECULARHIGHLIGHTS_OFF
+#pragma shader_feature_local_fragment _ENVIRONMENTREFLECTIONS_OFF
+#pragma shader_feature_local_fragment _IMPOSTOR_SUBSURFACE
+#pragma multi_compile_fragment _ _IMPOSTOR_NO_ADDITIONAL_LIGHTS
+#pragma multi_compile_fog
+#pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+#pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
+#pragma multi_compile _ _CLUSTER_LIGHT_LOOP
+#pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
+#pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
+#pragma multi_compile_fragment _ _LIGHT_COOKIES
+#pragma multi_compile _ _LIGHT_LAYERS
+#pragma multi_compile_fragment _ _REFLECTION_PROBE_BLENDING
+#pragma multi_compile_fragment _ _REFLECTION_PROBE_BOX_PROJECTION
+#pragma multi_compile_fragment _ _REFLECTION_PROBE_ATLAS
+#pragma multi_compile_fragment _ REFLECTION_PROBE_ROTATION
+#pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
+#include_with_pragmas "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DOTS.hlsl"
+#include "ImpostorCore.hlsl"

@@ -1,0 +1,21 @@
+#pragma kernel PackAmbient
+
+Texture2D<float4> _ColorInput;
+RWTexture2DArray<float4> _AmbientOutput;
+int _Slice;
+
+[numthreads(8, 8, 1)]
+void PackAmbient(uint3 id : SV_DispatchThreadID)
+{
+    uint width, height, layers;
+    _AmbientOutput.GetDimensions(width, height, layers);
+    if (id.x >= width || id.y >= height) return;
+    // SM5 f32tof16 truncates. Match Texture2DArray.SetPixels' nearest half conversion (ties up).
+    float sourceDepth = _ColorInput[id.xy].r;
+    uint halfDepth = f32tof16(sourceDepth);
+    float lower = f16tof32(halfDepth);
+    float midpoint = (lower + f16tof32(halfDepth + 1)) * 0.5;
+    if (sourceDepth >= midpoint) halfDepth++;
+    float depth = f16tof32(halfDepth);
+    _AmbientOutput[uint3(id.xy, _Slice)] = float4(depth, 0, 0, _ColorInput[id.xy].a);
+}

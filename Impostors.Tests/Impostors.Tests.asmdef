@@ -1,0 +1,36 @@
+{
+    "name": "Impostors.Tests",
+    "rootNamespace": "Impostors.Tests",
+    "references": [
+        "Impostors",
+        "Impostors.Authoring",
+        "Impostors.Data",
+        "Impostors.Editor",
+        "Impostors.Tests.Authoring",
+        "Unity.Collections",
+        "Unity.Entities",
+        "Unity.Entities.Hybrid",
+        "Unity.Mathematics",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.Scenes",
+        "Unity.Transforms",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

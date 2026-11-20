@@ -1,0 +1,20 @@
+{
+    "name": "Impostors.Tests.Authoring",
+    "rootNamespace": "Impostors.Tests.Authoring",
+    "references": [
+        "Unity.Collections",
+        "Unity.Entities",
+        "Unity.Entities.Hybrid"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

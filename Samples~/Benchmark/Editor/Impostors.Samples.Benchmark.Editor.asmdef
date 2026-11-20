@@ -1,0 +1,16 @@
+{
+    "name": "Impostors.Samples.Benchmark.Editor",
+    "rootNamespace": "Impostors.Samples.Benchmark.Editor",
+    "references": [
+        "Impostors",
+        "Impostors.Data",
+        "Impostors.Editor",
+        "Impostors.Samples.Benchmark.Runtime",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "autoReferenced": false
+}
