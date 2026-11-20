@@ -100,7 +100,7 @@ namespace Impostors.Editor
                 + "diffuse sunlight."),
             new(ImpostorShaderProperties.SUBSURFACE_SCATTERING_ROUGHNESS_NAME, "Spread",
                 "GGX roughness of the lobe around the view-towards-sun direction. Lower values give a tighter, brighter "
-                + "glow. Match the source graph's subsurface roughness (0.7 for the ForestLake foliage)."),
+                + "glow. Use the source graph's subsurface roughness, such as Subsurface Spread on ImpostorFoliage."),
             new(ImpostorShaderProperties.SUBSURFACE_SCATTERING_AMBIENT_NAME, "Ambient",
                 "Adds ambient SH light multiplied by the transmitted colour, like an indirect subsurface intensity. "
                 + "0 disables it."),

@@ -37,7 +37,7 @@ namespace Impostors.Tests
                 for (int workflow = 0; workflow < 3; workflow++)
                 {
                     Shader shader = workflow == 1
-                        ? AssetDatabase.LoadAssetAtPath<Shader>("Packages/com.fire.impostors/Impostors.Tests/Fixtures/SpecularCapture.shadergraph")
+                        ? AssetDatabase.LoadAssetAtPath<Shader>("Packages/com.firealt.impostors/Impostors.Tests/Fixtures/SpecularCapture.shadergraph")
                         : ImpostorTestAssets.CaptureShader;
                     Assert.That(shader, Is.Not.Null);
                     var material = new Material(shader);
@@ -126,7 +126,7 @@ namespace Impostors.Tests
 
         private static Color[] Read(Texture2DArray texture)
         {
-            var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>("Packages/com.fire.impostors/Impostors.Tests/Fixtures/ReadSurface.compute");
+            var compute = AssetDatabase.LoadAssetAtPath<ComputeShader>("Packages/com.firealt.impostors/Impostors.Tests/Fixtures/ReadSurface.compute");
             using var pixels = new ComputeBuffer(texture.width * texture.width, 16);
             compute.SetTexture(0, "_Source", texture);
             compute.SetBuffer(0, "_Pixels", pixels);
@@ -163,7 +163,7 @@ namespace Impostors.Tests
                 for (int space = 0; space < 3; space++)
                 {
                     string suffix = space == 0 ? "" : space == 1 ? "Object" : "World";
-                    string path = "Packages/com.fire.impostors/Impostors.Tests/Fixtures/ExposedTexture" + suffix + ".shadergraph";
+                    string path = "Packages/com.firealt.impostors/Impostors.Tests/Fixtures/ExposedTexture" + suffix + ".shadergraph";
                     var material = new Material(AssetDatabase.LoadAssetAtPath<Shader>(path));
                     material.SetTexture("_SourceTexture", texture);
                     AssetDatabase.CreateAsset(material, folder + "/Material" + space + ".mat");

@@ -1,5 +1,5 @@
 {
-  "name": "com.fire.impostors",
+  "name": "com.firealt.impostors",
   "version": "0.1.0-exp.1",
   "displayName": "Impostors",
   "description": "Prefab impostor baking and ECS-owned BatchRendererGroup rendering for URP, plus an Entity Painter for painting baked prefabs as entities into SubScenes.\n\nExperimental: APIs, serialized data and bake formats may change between releases.",

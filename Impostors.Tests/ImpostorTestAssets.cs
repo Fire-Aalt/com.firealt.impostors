@@ -23,7 +23,7 @@ namespace Impostors.Tests
         private static readonly ImpostorDefinition[] s_definitions = new ImpostorDefinition[2];
         private static string s_folder;
         private static bool s_createdRoot;
-        public const string CaptureGraphPath = "Packages/com.fire.impostors/Impostors.Tests/Fixtures/LitCapture.shadergraph";
+        public const string CaptureGraphPath = "Packages/com.firealt.impostors/Impostors.Tests/Fixtures/LitCapture.shadergraph";
         public static Shader CaptureShader => AssetDatabase.LoadAssetAtPath<Shader>(CaptureGraphPath);
         internal static string Folder => s_folder;
 

@@ -37,7 +37,7 @@ namespace Impostors.Tests
         [Test]
         public void SavingInputsDoesNotPersistReferencedPackageAssets()
         {
-            const string path = "Packages/com.fire.impostors/Impostors.Tests/Fixtures/ReadOnlyInput.mat";
+            const string path = "Packages/com.firealt.impostors/Impostors.Tests/Fixtures/ReadOnlyInput.mat";
             var material = AssetDatabase.LoadAssetAtPath<Material>(path);
             Assert.That(material, Is.Not.Null);
             var package = UnityEditor.PackageManager.PackageInfo.FindForAssetPath(path);

@@ -60,9 +60,9 @@ namespace Impostors.Tests
                 owned.Add(target); target.Create(); camera.targetTexture = target;
                 var pixels = new Texture2D(256, 256, TextureFormat.RGBA32, false, true); owned.Add(pixels);
 
-                for (int pine = 1; pine <= 2; pine++)
+                for (int prototype = 1; prototype <= 2; prototype++)
                 {
-                    var source = ImpostorTestAssets.Definition(pine);
+                    var source = ImpostorTestAssets.Definition(prototype);
                     Assert.That(source.HasValidSelfShadowVolume, Is.True);
                     var definition = Object.Instantiate(source); owned.Add(definition);
                     var mesh = source.LodData.Copy();
@@ -103,7 +103,7 @@ namespace Impostors.Tests
                             pixels.ReadPixels(new Rect(0, 0, 256, 256), 0, 0); pixels.Apply();
                             luminance[state] = pixels.GetPixels().Average(c => (double)c.r * .2126 + c.g * .7152 + c.b * .0722);
                         }
-                        string context = $"Portable prototype {pine}, representation {representation}: {string.Join(", ", luminance)}";
+                        string context = $"Portable prototype {prototype}, representation {representation}: {string.Join(", ", luminance)}";
                         Assert.That(luminance[0], Is.GreaterThan(.001), context);
                         if (representation == 0) Assert.That(luminance[1], Is.LessThan(luminance[0] - .0005), context);
                         else Assert.That(luminance[1], Is.EqualTo(luminance[0]).Within(.00001), context);

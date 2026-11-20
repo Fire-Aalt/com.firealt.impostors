@@ -16,7 +16,7 @@ namespace Impostors.Editor
     public static class ImpostorBakeFingerprint
     {
         private const string FORMAT_VERSION = "Impostor inputs v7 original capture shader|";
-        private const string PACKAGE_ROOT = "Packages/com.fire.impostors/";
+        private const string PACKAGE_ROOT = "Packages/com.firealt.impostors/";
         private const string MISSING_SCRIPT = "|missing script|";
         private const string MISSING_INPUTS = "A source prefab and bake settings are required.";
         private const string WRITABLE_ROOT = "Assets/";

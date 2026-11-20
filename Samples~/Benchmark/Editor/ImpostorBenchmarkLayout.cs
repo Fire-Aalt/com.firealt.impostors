@@ -14,7 +14,7 @@ namespace Impostors.Samples.Benchmark.Editor
         private const string INVALID_CAMERA_FIT = "Camera fitting requires instances, a positive aspect, and a finite culling percentage.";
         private const string MISSING_SETUP = "Assign a forest with valid baked definitions and a benchmark camera first.";
         private const string APPLY_UNDO = "Regenerate impostor benchmark";
-        private const string GROUND_NAME = "Valley ground";
+        private const string GROUND_NAME = "Ground";
 
         public const float Spacing = ImpostorBenchmarkGenerator.Spacing;
         // The renderer packs each prototype's instance records into an int-sized buffer.

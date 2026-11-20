@@ -244,4 +244,4 @@ Each assembly's root namespace equals its name:
 | `Impostors.Tests.Authoring` | `Impostors.Tests/Authoring/` | Test-only authoring components with nested bakers              |
 | `EntityPainter*`            | `EntityPainter*/`            | Entity Painter runtime, authoring, editor and tests            |
 
-Add `com.fire.impostors` to the project's `testables` list to run the package tests.
+Add `com.firealt.impostors` to the project's `testables` list to run the package tests.
