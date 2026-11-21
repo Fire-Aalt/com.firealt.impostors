@@ -18,7 +18,7 @@ namespace Impostors.Editor
         public const float DEFAULT_FIRST_TRANSITION = .6f;
         public const float DEFAULT_IMPOSTOR_TRANSITION = .1f;
 
-        private const string FORMAT_VERSION = "Mesh LOD generator v3|";
+        private const string FORMAT_VERSION = "Mesh LOD generator v4|";
         private const string ROOT_NAME = "LODs";
         private const string LOD_NAME = "LOD";
         private const string MESH_NAME = "{0} LOD{1}";
@@ -353,6 +353,10 @@ namespace Impostors.Editor
             var lodRoot = new GameObject(LOD_NAME + lod).transform;
             lodRoot.SetParent(parent, false);
             GameObject copy = Object.Instantiate(model, lodRoot, false);
+            // A model root's position is where it was placed in its authoring tool, which Unity drops when the model
+            // is placed in a scene. Kept here, it would offset every LOD from the prefab pivot. Rotation and scale
+            // carry the axis and unit conversion, so they stay.
+            copy.transform.localPosition = Vector3.zero;
             Renderer[] modelRenderers = model.GetComponentsInChildren<Renderer>(true);
             Renderer[] copyRenderers = copy.GetComponentsInChildren<Renderer>(true);
             // Instantiate preserves hierarchy order, so a model renderer's index finds its copy.

@@ -146,6 +146,31 @@ namespace Impostors.Tests
         }
 
         [Test]
+        public void GenerateDropsModelRootPositionButKeepsItsRotationAndScale()
+        {
+            // An FBX root keeps the position its object had in the authoring tool, and its axis conversion and units.
+            Quaternion rotation = Quaternion.Euler(-90f, 0f, 0f);
+            var scale = new Vector3(100f, 100f, 100f);
+            GameObject prefab = CreateGeneratorPrefab(out _, model =>
+            {
+                model.localPosition = new Vector3(150f, -14f, 234f);
+                model.localRotation = rotation;
+                model.localScale = scale;
+            });
+
+            MeshLodGeneratorAuthoring.Generate(prefab);
+
+            Vector3 expected = Matrix4x4.TRS(Vector3.zero, rotation, scale).MultiplyPoint3x4(Vector3.up);
+            foreach (LOD lod in prefab.GetComponent<LODGroup>().GetLODs())
+            {
+                Transform renderer = lod.renderers.Single().transform;
+                Assert.That(Vector3.Distance(renderer.localPosition, expected), Is.LessThan(1e-3f));
+                Assert.That(Quaternion.Angle(renderer.localRotation, rotation), Is.LessThan(1e-3f));
+                Assert.That(Vector3.Distance(renderer.localScale, scale), Is.LessThan(1e-3f));
+            }
+        }
+
+        [Test]
         public void DeletedLodHierarchyMeshesAreRemovedAndNotDuplicatedOnRegenerate()
         {
             GameObject prefab = CreateGeneratorPrefab(out _);
@@ -299,7 +324,7 @@ namespace Impostors.Tests
         }
 
         /// <summary>A model prefab with a nested renderer and a collider, and an impostor prefab that generates from it.</summary>
-        private GameObject CreateGeneratorPrefab(out Mesh sourceMesh)
+        private GameObject CreateGeneratorPrefab(out Mesh sourceMesh, System.Action<Transform> configureModel = null)
         {
             _folder = ImpostorTestAssets.NewFolder("MeshLod");
             sourceMesh = CreateGrid();
@@ -312,6 +337,7 @@ namespace Impostors.Tests
             child.transform.localPosition = Vector3.up;
             child.GetComponent<MeshFilter>().sharedMesh = sourceMesh;
             child.GetComponent<MeshRenderer>().sharedMaterials = new[] { material, material };
+            configureModel?.Invoke(model.transform);
             var root = new GameObject("Impostor", typeof(Impostor), typeof(MeshLodGenerator));
             try
             {

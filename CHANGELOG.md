@@ -4,6 +4,15 @@ All notable changes to this package are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Mesh LOD Generator** no longer copies the source model root's position into the generated LODs.
+  A model exported away from its origin, such as an FBX whose object sat off-centre in Blender, placed its LODs
+  and impostor far from the prefab pivot, so painted or spawned instances appeared far from where they were placed.
+  Existing generated prefabs show as outdated; regenerate them, then rebake the impostor.
+
 ## [0.1.0-exp.1] - 2026-11-20
 
 First experimental release.
