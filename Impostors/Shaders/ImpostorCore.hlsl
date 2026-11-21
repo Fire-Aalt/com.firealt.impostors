@@ -36,7 +36,9 @@ float4 _SelfShadowInterior, _SelfShadowPadding;
 float4 _SubsurfaceScatteringTint;
 float _SubsurfaceScatteringStrength, _SubsurfaceScatteringRoughness, _SubsurfaceScatteringAmbient;
 float _ShadowReceiverBias;
+float _ImpostorLiveShadows;
 CBUFFER_END
+bool ImpostorCastsLiveShadows() { return _ImpostorLiveShadows > .5; }
 TEXTURE2D(_FrameRectangles);SAMPLER(sampler_FrameRectangles);
 TEXTURE2D_ARRAY(_BaseArray);SAMPLER(sampler_BaseArray);
 TEXTURE2D_ARRAY(_SurfaceArray);SAMPLER(sampler_SurfaceArray);
@@ -427,7 +429,7 @@ void Frag(Varyings v,out float4 color:SV_Target,out float depth:IMPOSTOR_DEPTH){
  surface.alpha=1;surface.normalTS=float3(0,0,1);
  ImpostorBakedSunVisibility=1;
  #if defined(_IMPOSTOR_SELF_SHADOW_VOLUME)
- [branch]if(ImpostorSunShadowFade(ws)>0)
+ [branch]if(ImpostorSelfShadowWeight(ws,true)>0)
      ImpostorBakedSunVisibility=lerp(1,ImpostorSelfVisibility(h.positionOS,h.normalOS,v.selfShadow),ImpostorMainLightShadowStrength()*_SelfShadowStrength);
  #endif
  #if defined(_IMPOSTOR_SUBSURFACE)

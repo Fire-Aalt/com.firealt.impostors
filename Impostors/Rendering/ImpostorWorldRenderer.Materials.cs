@@ -84,6 +84,7 @@ namespace Impostors
         {
             var binding = new MaterialBinding
             {
+                Owner = this,
                 Source = source,
                 Target = target,
                 Definition = definition,
@@ -95,12 +96,14 @@ namespace Impostors
             if (definition)
             {
                 binding.ApplyForwardPassState();
+                binding.ApplyLiveShadows();
             }
         }
 
         /// <summary>Links an owned runtime material to the asset material it copies.</summary>
         private sealed class MaterialBinding
         {
+            public ImpostorWorldRenderer Owner;
             public Material Source;
             public Material Target;
             public ImpostorDefinition Definition;
@@ -132,11 +135,21 @@ namespace Impostors
                 {
                     ConfigureImpostorMaterial(Target, Definition);
                     ApplyForwardPassState();
+                    ApplyLiveShadows();
                 }
 
                 Checksum = checksum;
                 Cutoff = cutoff;
                 return true;
+            }
+
+            /// <summary>Copying the source material resets the flag, so it is reapplied after every copy.</summary>
+            public void ApplyLiveShadows()
+            {
+                if (Definition && Target)
+                {
+                    Target.SetFloat(ImpostorShaderProperties.LiveShadows, Owner._liveShadows ? 1 : 0);
+                }
             }
 
             // Crossfade dither must land on the same pixel grid as the mesh LOD it complements, which

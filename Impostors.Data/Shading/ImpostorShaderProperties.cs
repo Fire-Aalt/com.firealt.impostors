@@ -135,6 +135,10 @@ namespace Impostors.Data
         public const string PROXY_DIAGONAL_MAX_NAME = "_ProxyDiagonalMax";
         public static readonly int ProxyDiagonalMax = Shader.PropertyToID(PROXY_DIAGONAL_MAX_NAME);
 
+        /// <summary>Set by the renderer: 1 when its impostors render into the main light's shadow map.</summary>
+        public const string LIVE_SHADOWS_NAME = "_ImpostorLiveShadows";
+        public static readonly int LiveShadows = Shader.PropertyToID(LIVE_SHADOWS_NAME);
+
         public const string SELF_SHADOW_STRENGTH_NAME = "_SelfShadowStrength";
         public static readonly int SelfShadowStrength = Shader.PropertyToID(SELF_SHADOW_STRENGTH_NAME);
 

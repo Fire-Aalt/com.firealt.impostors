@@ -6,25 +6,34 @@
 // getter still owns cookies, light layers, SSAO and all additional lights.
 static half ImpostorBakedSunVisibility = 1;
 
-float ImpostorSunShadowFade(float3 positionWS)
+// Whether this impostor renders into the main light's shadow map. Defined after the material constants.
+bool ImpostorCastsLiveShadows();
+
+// Weight of the baked self-shadow volume. An impostor in the shadow map gets its self-shadowing from the cascades
+// and only needs the volume where they fade out. One that casts no live shadows always needs it.
+float ImpostorSelfShadowWeight(float3 positionWS, bool receiveShadows)
 {
-#if defined(MAIN_LIGHT_CALCULATE_SHADOWS)
-    return GetMainLightShadowFade(positionWS);
-#else
-    return 1;
-#endif
+    if (!ImpostorCastsLiveShadows()) return 1;
+    return MainLightShadowsAvailable() && receiveShadows ? GetMainLightShadowFade(positionWS) : 1;
 }
 
-half ImpostorMainLightShadow(float4 shadowCoord, float3 positionWS,
-    half4 shadowMask, half4 occlusionProbeChannels)
+// Matches URP 17.7's MainLightShadow, which RealtimeLights.hlsl calls from GetMainLight.
+half ImpostorMainLightShadow(float4 shadowCoord, float3 positionWS, half4 shadowMask, half4 occlusionProbeChannels,
+    bool receiveShadows, bool isSurfaceTypeTransparent)
 {
 #if defined(_IMPOSTOR_SELF_SHADOW_VOLUME)
-    // MainLightRealtimeShadow includes strength, but does not include fade.
-    float fade = ImpostorSunShadowFade(positionWS);
+    // Without the impostor in the shadow map, other casters still shadow it and the volume adds its own shadowing.
+    [branch] if (!ImpostorCastsLiveShadows())
+        return MainLightShadow(shadowCoord, positionWS, shadowMask, occlusionProbeChannels, receiveShadows,
+            isSurfaceTypeTransparent) * ImpostorBakedSunVisibility;
+    // The realtime sample includes shadow strength, but not the distance fade.
+    float fade = ImpostorSelfShadowWeight(positionWS, receiveShadows);
     [branch] if (fade >= 1) return ImpostorBakedSunVisibility;
-    return lerp(MainLightRealtimeShadow(shadowCoord), ImpostorBakedSunVisibility, fade);
+    half realtime = SampleMainLightRealtimeShadow(shadowCoord, isSurfaceTypeTransparent);
+    return lerp(realtime, ImpostorBakedSunVisibility, fade);
 #else
-    return MainLightShadow(shadowCoord, positionWS, shadowMask, occlusionProbeChannels);
+    return MainLightShadow(shadowCoord, positionWS, shadowMask, occlusionProbeChannels, receiveShadows,
+        isSurfaceTypeTransparent);
 #endif
 }
 

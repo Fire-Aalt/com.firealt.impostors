@@ -33,6 +33,7 @@ Shader "Impostors/Hemi Octahedral" {
  _SelfShadowNormalBias("Self-shadow normal bias (voxels)",Range(0,2))=0
  _SelfShadowPower("Self-shadow response",Range(0.25,2))=1
  _ShadowReceiverBias("Realtime shadow receiver bias",Range(0,0.2))=0.05
+ [HideInInspector] _ImpostorLiveShadows("Casts realtime shadows",Float)=0
  _DetailFullPixels("Full detail above (px)",Range(0,1024))=160
  _DetailReducedPixels("Lowest detail below (px)",Range(0,1024))=64
  [HideInInspector] _SelfShadowVolume("Prefiltered self visibility",3D)="white"{}

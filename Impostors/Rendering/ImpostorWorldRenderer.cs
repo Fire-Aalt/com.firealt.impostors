@@ -34,9 +34,25 @@ namespace Impostors
 
         public ulong SceneMask = ulong.MaxValue;
         public int Layer;
-        public bool LiveShadows;
 
+        /// <summary>
+        /// Whether impostors render into the main light's shadow map. Their shading relies on those cascades for
+        /// self-shadowing where they cover it, so the materials are told as well.
+        /// </summary>
+        public bool LiveShadows
+        {
+            get => _liveShadows;
+            set
+            {
+                _liveShadows = value;
+                foreach (MaterialBinding binding in _materialBindings)
+                {
+                    binding.ApplyLiveShadows();
+                }
+            }
+        }
         private BatchRendererGroup _brg;
+        private bool _liveShadows;
         private bool _disposed;
         private JobHandle _fence;
         private ViewState[] _views = new ViewState[INITIAL_VIEW_CAPACITY];
