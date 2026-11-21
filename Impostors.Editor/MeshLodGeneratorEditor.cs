@@ -20,7 +20,6 @@ namespace Impostors.Editor
         private const string AUTO_TOOLTIP = "Spaces the transitions between LOD0 and the impostor so on-screen triangle "
             + "density stays roughly constant. Needs three or more up-to-date LODs.";
         private const string AUTO_UNDO = "Auto LOD distances";
-        private const string SELECT_MODEL_LABEL = "Select model";
         private const string LOD_LABEL = "LOD{0}";
         private const string TARGET_LABEL = "Target";
         private const string ACTUAL_LABEL = "Actual";
@@ -33,8 +32,6 @@ namespace Impostors.Editor
         private const string UP_TO_DATE = "Up to date. Rebake the impostor after regenerating.";
         private const string INVALID_SOURCE = "Generate from the prefab asset or Prefab Mode, on the prefab root.";
         private const string CLAMPED = "Some transitions were moved to keep them above the impostor start.";
-        private const string UNSUPPORTED_MATERIALS = "These materials can't be captured: {0}. Remap them to a capture-ready "
-            + "shader such as Impostors/ImpostorLit in the model's Materials tab.";
         private const float LOD_WIDTH = 42;
         private const float TARGET_WIDTH = 48;
         private const float ACTUAL_WIDTH = 140;
@@ -67,7 +64,6 @@ namespace Impostors.Editor
                 EditorGUILayout.HelpBox(error, generator.SourceModel ? MessageType.Error : MessageType.Info);
             }
 
-            DrawMaterials(generator, renderers);
             DrawStatus(generator);
             if (!validSource)
             {
@@ -92,6 +88,7 @@ namespace Impostors.Editor
             SerializedProperty reduction = serializedObject.FindProperty(nameof(MeshLodGenerator.Reduction));
             EditorGUILayout.PropertyField(reduction, new GUIContent(REDUCTION_LABEL, reduction.tooltip));
             ResizeOverrides(serializedObject.FindProperty(nameof(MeshLodGenerator.Overrides)), count.intValue);
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(MeshLodGenerator.MaterialRemaps)), true);
             serializedObject.ApplyModifiedProperties();
         }
 
@@ -189,29 +186,6 @@ namespace Impostors.Editor
                 GUIContent warning = EditorGUIUtility.IconContent("console.warnicon.sml");
                 warning.tooltip = string.Format(DUPLICATE_TOOLTIP, lod - 1);
                 GUILayout.Label(warning, GUILayout.Width(EditorGUIUtility.singleLineHeight));
-            }
-        }
-
-        private static void DrawMaterials(MeshLodGenerator generator, MeshRenderer[] renderers)
-        {
-            if (renderers == null)
-            {
-                return;
-            }
-
-            string[] unsupported = renderers.SelectMany(renderer => renderer.sharedMaterials).Distinct()
-                .Where(material => !IsCaptureReady(material))
-                .Select(material => material.name)
-                .ToArray();
-            if (unsupported.Length == 0)
-            {
-                return;
-            }
-
-            EditorGUILayout.HelpBox(string.Format(UNSUPPORTED_MATERIALS, string.Join(", ", unsupported)), MessageType.Warning);
-            if (GUILayout.Button(SELECT_MODEL_LABEL))
-            {
-                Selection.activeObject = generator.SourceModel;
             }
         }
 
@@ -327,11 +301,5 @@ namespace Impostors.Editor
         }
 
         private static Mesh SharedMesh(Renderer renderer) => renderer.GetComponent<MeshFilter>().sharedMesh;
-
-        private static bool IsCaptureReady(Material material)
-        {
-            return material && material.shader
-                && material.shader.keywordSpace.FindKeyword(ImpostorShaderKeywords.CAPTURE_ENABLED).isValid;
-        }
     }
 }
