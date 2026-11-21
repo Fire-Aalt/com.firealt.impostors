@@ -6,7 +6,18 @@ and the package uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Impostors Renderer Feature › Occluded Depth Rejection**, on by default. When URP's prepass renders straight into
+  the camera depth texture, impostor depth and normals are drawn by the feature right after it, and quads hidden
+  behind opaque geometry are skipped before reconstruction. Impostors write per-pixel depth, and HLSLcc drops
+  `SV_DepthLessEqual` on Vulkan, so hardware early-Z never rejected hidden impostor fragments there.
+
 ### Fixed
+
+- The impostor shader no longer keeps per-view state in local arrays. They compiled to indexable temps, which
+  Vulkan drivers placed in scratch memory, making every impostor fragment roughly 15 times more expensive in all passes.
+- **Impostors Offscreen Shade** skips quads hidden behind the scene depth instead of shading every impostor behind walls.
 
 - **Mesh LOD Generator** no longer copies the source model root's position into the generated LODs.
   A model exported away from its origin, such as an FBX whose object sat off-centre in Blender, placed its LODs

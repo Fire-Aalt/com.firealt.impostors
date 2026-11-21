@@ -102,9 +102,42 @@ void SelectViewFrames(float3 direction, out float3 frames, out float3 weights)
 #if defined(IMPOSTOR_OFFSCREEN_SHADE)
 // _ScaledScreenParams describes the smaller buffer during this pass.
 float _ImpostorNativeScreenHeight;
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+float _ImpostorSceneDepthTest;
 #define IMPOSTOR_DETAIL_SCREEN_HEIGHT _ImpostorNativeScreenHeight
 #else
 #define IMPOSTOR_DETAIL_SCREEN_HEIGHT _ScaledScreenParams.y
+#endif
+
+#if defined(IMPOSTOR_OFFSCREEN_SHADE) || defined(IMPOSTOR_PREPASS_TEST)
+// Writing per-pixel depth disables hardware early-Z on compilers that drop SV_DepthLessEqual (HLSLcc on Vulkan),
+// so hidden impostors would pay for full reconstruction. The proxy's rasterized depth is the nearest the surface
+// can be, so a quad is skipped when the farthest scene depth covering it is nearer. Whole quads only, which keeps
+// the derivatives of the surviving lanes valid.
+bool ImpostorQuadHidden(float sceneDepth,float4 positionCS)
+{
+ #if UNITY_REVERSED_Z
+ float hidden=sceneDepth>positionCS.z?1:0;
+ #else
+ float hidden=sceneDepth<positionCS.z?1:0;
+ #endif
+ return hidden>.5&&ddx_fine(hidden)==0&&ddy_fine(hidden)==0&&ddx_fine(ddy_fine(hidden))==0;
+}
+float ImpostorFarthestDepth(float4 depths)
+{
+ #if UNITY_REVERSED_Z
+ return min(min(depths.x,depths.y),min(depths.z,depths.w));
+ #else
+ return max(max(depths.x,depths.y),max(depths.z,depths.w));
+ #endif
+}
+#endif
+#if defined(IMPOSTOR_URP_PREPASS)
+// Set while the renderer feature draws impostor depth itself, after URP's prepass, against opaque-only depth.
+float _ImpostorOwnsPrepass;
+#endif
+#if defined(IMPOSTOR_PREPASS_TEST)
+TEXTURE2D_X_FLOAT(_ImpostorOpaqueDepth);
 #endif
 
 // 1 keeps full parallax and frame blending, 0 is the cheapest representation.
@@ -188,53 +221,85 @@ struct Hit{float3 positionOS,normalOS;half3 albedo,emission;half4 reflectance;ha
 float3 geometricNormalOS;half metallic,specularWorkflow;
 #endif
 };
+// Per-view state lives in this struct and the views are expanded by hand: arrays indexed in loops with
+// conditional writes compile to indexable temps, which HLSLcc turns into function-scope arrays that NVIDIA
+// keeps in per-thread scratch memory. That made every fragment several times more expensive.
+struct ImpostorView{float frame,weight;float2 uv,uvDx,uvDy,corrected;float3 right,up;float4 rect;float denominator,time;half4 color;float hitTime,valid;};
+ImpostorView PrepareView(float frame,float weight,float4 rect,float3 origin,float3 ray){
+ ImpostorView view=(ImpostorView)0;view.frame=frame;view.weight=weight;view.rect=rect;
+ float3 d=HemiDecode(float2(fmod(frame,_Frames),floor(frame/_Frames))/(_Frames-1));FrameBasis(d,view.right,view.up);
+ float denominator=dot(ray,d);view.denominator=abs(denominator)<.0001?-.0001:denominator;
+ view.time=dot(_CaptureCenter.xyz-origin,d)/view.denominator;
+ float3 p=origin+ray*view.time-_CaptureCenter.xyz;
+ view.uv=(float2(dot(p,view.right),dot(p,view.up))/(_CaptureRadius*2)+.5)*rect.xy+rect.zw;
+ view.uvDx=ddx(view.uv);view.uvDy=ddy(view.uv);
+ return view;
+}
+void SampleView(inout ImpostorView view,float3 origin,float3 ray,float detail,inout Hit h,inout float nearestHit){
+ // A frame with exactly zero barycentric weight cannot affect coverage,
+ // attributes or depth. Derivatives were taken above the branch, so skip its reads.
+ [branch]if(view.weight<=0)return;
+ float depth=SAMPLE_TEXTURE2D_ARRAY_GRAD(_DepthArray,sampler_PointClamp,view.uv,view.frame,view.uvDx*.5,view.uvDy*.5).r;
+ // At zero detail the first depth read doubles as the surface depth and parallax is skipped.
+ float2 uv=view.uv;float surfaceDepth=depth;
+ [branch]if(detail>0){
+  float t=view.time+((depth*2-1)*_CaptureRadius)/view.denominator;
+  float3 p=origin+ray*t-_CaptureCenter.xyz;
+  float2 corrected=(float2(dot(p,view.right),dot(p,view.up))/(_CaptureRadius*2)+.5)*view.rect.xy+view.rect.zw;
+  uv=lerp(uv,corrected,detail);
+  // Depth at the corrected colour sample reconstructs that surface, rather than
+  // the unrelated texel used to calculate the single UV correction.
+  surfaceDepth=SAMPLE_TEXTURE2D_ARRAY_GRAD(_DepthArray,sampler_PointClamp,uv,view.frame,view.uvDx*.5,view.uvDy*.5).r;
+ }
+ view.color=SAMPLE_TEXTURE2D_ARRAY_GRAD(_BaseArray,sampler_BaseArray,uv,view.frame,view.uvDx,view.uvDy);
+ view.valid=all(uv>=_Border)&&all(uv<=1-_Border)&&depth>0.00002&&surfaceDepth>0.00002?1:0;
+ view.hitTime=view.time+((surfaceDepth*2-1)*_CaptureRadius)/view.denominator;
+ view.corrected=uv;
+ float score=view.weight*view.color.a*view.valid;
+ h.coverage+=score;
+ if(score>.05)nearestHit=min(nearestHit,view.hitTime);
+}
+void AccumulateView(ImpostorView view,float surfaceFocus,float nearestHit,float tolerance,inout Hit h,inout float weight,inout float distance,inout float surfaceWeight){
+ [branch]if(view.weight<=0)return;
+ half4 c=view.color;
+ // Preserve barycentric coverage, while avoiding colour/normal averages between
+ // foreground needles and unrelated branches behind them.
+ float confidence=exp2(-max(0,view.hitTime-nearestHit)/max(.001,tolerance));
+ float w=view.weight*c.a*view.valid*confidence;
+ h.albedo+=c.rgb*w;
+ #if !defined(IMPOSTOR_DEBUG_CAPTURE) && !defined(IMPOSTOR_DEPTH_ONLY)
+ // Standard shadow casting also needs the reconstructed normal for URP bias.
+ float sw=surfaceFocus*confidence;
+ [branch]if(sw>0){
+ half4 s=SAMPLE_TEXTURE2D_ARRAY_GRAD(_SurfaceArray,sampler_SurfaceArray,view.corrected,view.frame,view.uvDx,view.uvDy);
+ h.normalOS+=DecodeNormal(s.rg)*sw;h.ao+=s.b*sw;h.smoothness+=s.a*sw;surfaceWeight+=sw;
+ #if defined(_IMPOSTOR_MATERIAL_ADJUSTMENTS)
+ half4 material=SAMPLE_TEXTURE2D_ARRAY_GRAD(_MaterialDataArray,sampler_MaterialDataArray,view.corrected,view.frame,view.uvDx,view.uvDy);
+ h.geometricNormalOS+=DecodeNormal(material.rg)*sw;h.metallic+=material.b*sw;h.specularWorkflow+=material.a*sw;
+ #endif
+ #if defined(IMPOSTOR_FORWARD_SELF_SHADOW)
+ [branch]if(_HasUniformReflectance<.5)h.reflectance+=SAMPLE_TEXTURE2D_ARRAY_GRAD(_ReflectanceArray,sampler_ReflectanceArray,view.corrected,view.frame,view.uvDx,view.uvDy)*sw;
+ #endif
+ }
+ #if defined(IMPOSTOR_FORWARD_SELF_SHADOW)
+ [branch]if(_HasEmission>.5)h.emission+=SAMPLE_TEXTURE2D_ARRAY_GRAD(_EmissionArray,sampler_EmissionArray,view.corrected,view.frame,view.uvDx,view.uvDy).rgb*w;
+ #endif
+ #endif
+ distance+=view.hitTime*w;weight+=w;
+}
 Hit Reconstruct(Varyings v){
- float3 origin,rayDirection,frames,weights;
-  origin=v.originOS;rayDirection=v.directionOS;frames=v.frames;weights=v.weights;
+ float3 origin=v.originOS,rayDirection=v.directionOS;
  float3 ray=normalize(v.positionOS-origin);
  if(dot(rayDirection,rayDirection)>.5){ray=rayDirection;origin=v.positionOS-ray*(_CaptureRadius*4);}
  float2 proxyInterval=IntersectProxyVolume(origin,ray);
  v.positionOS=origin+ray*max(proxyInterval.x,0);
- Hit h=(Hit)0;float weight=0;float distance=0;
- half4 colors[3];float hitTimes[3],validSamples[3];
- float nearestHit=1e20;
- float2 uvDx[3],uvDy[3],uvs[3],correctedUVs[3];float3 rights[3],ups[3];float4 rectangles[3];float denominators[3],times[3];
- [unroll]for(int j=0;j<3;j++){
-  float3 d,r,u;
-  float frame=frames[j];float4 rect;
-    d=HemiDecode(float2(fmod(frame,_Frames),floor(frame/_Frames))/(_Frames-1));FrameBasis(d,r,u);rect=j==0?v.rect0:(j==1?v.rect1:v.rect2);
-  float denominator=dot(ray,d);denominator=abs(denominator)<.0001?-.0001:denominator;
-  float t=dot(_CaptureCenter.xyz-origin,d)/denominator;
-  float3 p=origin+ray*t-_CaptureCenter.xyz;
-  float2 uv=float2(dot(p,r),dot(p,u))/(_CaptureRadius*2)+.5;
-  float2 mapped=uv*rect.xy+rect.zw;
-  uvs[j]=mapped;uvDx[j]=ddx(mapped);uvDy[j]=ddy(mapped);rights[j]=r;ups[j]=u;rectangles[j]=rect;denominators[j]=denominator;times[j]=t;
- }
- [unroll]for(int i=0;i<3;i++){
-  // A frame with exactly zero barycentric weight cannot affect coverage,
-  // attributes or depth. Keep derivatives above the branch, but skip its reads.
-  [branch]if(weights[i]<=0){colors[i]=0;correctedUVs[i]=0;hitTimes[i]=0;validSamples[i]=0;continue;}
-  float frame=frames[i];float depth=SAMPLE_TEXTURE2D_ARRAY_GRAD(_DepthArray,sampler_PointClamp,uvs[i],frame,uvDx[i]*.5,uvDy[i]*.5).r;
-  // At zero detail the first depth read doubles as the surface depth and parallax is skipped.
-  float2 uv=uvs[i];float surfaceDepth=depth;
-  [branch]if(v.detail>0){
-   float t=times[i]+((depth*2-1)*_CaptureRadius)/denominators[i];
-   float3 p=origin+ray*t-_CaptureCenter.xyz;
-   float4 rect=rectangles[i];
-   float2 corrected=(float2(dot(p,rights[i]),dot(p,ups[i]))/(_CaptureRadius*2)+.5)*rect.xy+rect.zw;
-   uv=lerp(uv,corrected,v.detail);
-   // Depth at the corrected colour sample reconstructs that surface, rather than
-   // the unrelated texel used to calculate the single UV correction.
-   surfaceDepth=SAMPLE_TEXTURE2D_ARRAY_GRAD(_DepthArray,sampler_PointClamp,uv,frame,uvDx[i]*.5,uvDy[i]*.5).r;
-  }
-  half4 c=SAMPLE_TEXTURE2D_ARRAY_GRAD(_BaseArray,sampler_BaseArray,uv,frame,uvDx[i],uvDy[i]);
-  float valid=all(uv>=_Border)&&all(uv<=1-_Border)&&depth>0.00002?1:0;
-  valid*=surfaceDepth>0.00002?1:0;
-  float hitTime=times[i]+((surfaceDepth*2-1)*_CaptureRadius)/denominators[i];
-  colors[i]=c;correctedUVs[i]=uv;hitTimes[i]=hitTime;validSamples[i]=valid;
-  h.coverage+=weights[i]*c.a*valid;
-  if(weights[i]*c.a*valid>.05)nearestHit=min(nearestHit,hitTime);
- }
+ Hit h=(Hit)0;float weight=0;float distance=0;float nearestHit=1e20;
+ ImpostorView view0=PrepareView(v.frames.x,v.weights.x,v.rect0,origin,ray);
+ ImpostorView view1=PrepareView(v.frames.y,v.weights.y,v.rect1,origin,ray);
+ ImpostorView view2=PrepareView(v.frames.z,v.weights.z,v.rect2,origin,ray);
+ SampleView(view0,origin,ray,v.detail,h,nearestHit);
+ SampleView(view1,origin,ray,v.detail,h,nearestHit);
+ SampleView(view2,origin,ray,v.detail,h,nearestHit);
  float tolerance=max(_CaptureRadius*.08,(length(ddx(v.positionOS))+length(ddy(v.positionOS)))*2);
  // Resolve coverage before fetching surface attributes. Explicit gradients and
  // the depth tolerance are already available for every quad lane before clip.
@@ -248,37 +313,12 @@ Hit Reconstruct(Varyings v){
  clip(proxyInterval.y-max(proxyInterval.x,0));
  // Normal, AO and reflectance change slowly between neighbouring views, so read them only from
  // frames near the strongest one. Weights reach zero continuously, so a frame leaves without a pop.
- float3 frameScores=float3(weights[0]*colors[0].a*validSamples[0],weights[1]*colors[1].a*validSamples[1],weights[2]*colors[2].a*validSamples[2]);
+ float3 frameScores=float3(view0.weight*view0.color.a*view0.valid,view1.weight*view1.color.a*view1.valid,view2.weight*view2.color.a*view2.valid);
  float3 surfaceFocus=max(frameScores-max(frameScores.x,max(frameScores.y,frameScores.z))*IMPOSTOR_FRAME_FOCUS,0);
  float surfaceWeight=0;
- [unroll]for(int k=0;k<3;k++){
-  [branch]if(weights[k]<=0)continue;
-  half4 c=colors[k];
-  // Preserve barycentric coverage, while avoiding colour/normal averages between
-  // foreground needles and unrelated branches behind them.
-  float confidence=exp2(-max(0,hitTimes[k]-nearestHit)/max(.001,tolerance));
-  float w=weights[k]*c.a*validSamples[k]*confidence;
-  h.albedo+=c.rgb*w;
-  #if !defined(IMPOSTOR_DEBUG_CAPTURE) && !defined(IMPOSTOR_DEPTH_ONLY)
-  // Standard shadow casting also needs the reconstructed normal for URP bias.
-  float sw=surfaceFocus[k]*confidence;
-  [branch]if(sw>0){
-  half4 s=SAMPLE_TEXTURE2D_ARRAY_GRAD(_SurfaceArray,sampler_SurfaceArray,correctedUVs[k],frames[k],uvDx[k],uvDy[k]);
-  h.normalOS+=DecodeNormal(s.rg)*sw;h.ao+=s.b*sw;h.smoothness+=s.a*sw;surfaceWeight+=sw;
-  #if defined(_IMPOSTOR_MATERIAL_ADJUSTMENTS)
-  half4 material=SAMPLE_TEXTURE2D_ARRAY_GRAD(_MaterialDataArray,sampler_MaterialDataArray,correctedUVs[k],frames[k],uvDx[k],uvDy[k]);
-  h.geometricNormalOS+=DecodeNormal(material.rg)*sw;h.metallic+=material.b*sw;h.specularWorkflow+=material.a*sw;
-  #endif
-  #if defined(IMPOSTOR_FORWARD_SELF_SHADOW)
-  [branch]if(_HasUniformReflectance<.5)h.reflectance+=SAMPLE_TEXTURE2D_ARRAY_GRAD(_ReflectanceArray,sampler_ReflectanceArray,correctedUVs[k],frames[k],uvDx[k],uvDy[k])*sw;
-  #endif
-  }
-  #if defined(IMPOSTOR_FORWARD_SELF_SHADOW)
-  [branch]if(_HasEmission>.5)h.emission+=SAMPLE_TEXTURE2D_ARRAY_GRAD(_EmissionArray,sampler_EmissionArray,correctedUVs[k],frames[k],uvDx[k],uvDy[k]).rgb*w;
-  #endif
-  #endif
-  distance+=hitTimes[k]*w;weight+=w;
- }
+ AccumulateView(view0,surfaceFocus.x,nearestHit,tolerance,h,weight,distance,surfaceWeight);
+ AccumulateView(view1,surfaceFocus.y,nearestHit,tolerance,h,weight,distance,surfaceWeight);
+ AccumulateView(view2,surfaceFocus.z,nearestHit,tolerance,h,weight,distance,surfaceWeight);
  float inv=rcp(max(weight,.00001));h.albedo*=inv;
  #if !defined(IMPOSTOR_DEBUG_CAPTURE) && !defined(IMPOSTOR_DEPTH_ONLY)
  float surfaceInv=rcp(max(surfaceWeight,.00001));
@@ -331,6 +371,17 @@ half3 ImpostorSubsurface(InputData data,SurfaceData surface,half3 albedo){
 #endif
 void Frag(Varyings v,out float4 color:SV_Target,out float depth:IMPOSTOR_DEPTH){
  UNITY_SETUP_INSTANCE_ID(v);UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(v);
+ #if defined(IMPOSTOR_URP_PREPASS)
+ [branch]if(_ImpostorOwnsPrepass>.5){color=0;depth=v.positionCS.z;discard;return;}
+ #endif
+ #if defined(IMPOSTOR_OFFSCREEN_SHADE)
+ // At half scale a buffer pixel centre lands on the corner shared by the 2x2 native texels it covers.
+ [branch]if(_ImpostorSceneDepthTest>.5&&ImpostorQuadHidden(ImpostorFarthestDepth(GATHER_RED_TEXTURE2D_X(_CameraDepthTexture,
+  sampler_PointClamp,UnityStereoTransformScreenSpaceTex(v.positionCS.xy/_ScaledScreenParams.xy))),v.positionCS)){color=0;depth=v.positionCS.z;discard;return;}
+ #endif
+ #if defined(IMPOSTOR_PREPASS_TEST)
+ [branch]if(ImpostorQuadHidden(LOAD_TEXTURE2D_X(_ImpostorOpaqueDepth,uint2(v.positionCS.xy)).r,v.positionCS)){color=0;depth=v.positionCS.z;discard;return;}
+ #endif
  Hit h=Reconstruct(v);
  #if defined(LOD_FADE_CROSSFADE)
  LODFadeCrossFade(v.positionCS);

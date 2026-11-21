@@ -75,6 +75,7 @@ Shader "Impostors/Hemi Octahedral" {
  #pragma multi_compile _ LOD_FADE_CROSSFADE
  #pragma vertex Vert
  #pragma fragment Frag
+ #define IMPOSTOR_URP_PREPASS
  #define IMPOSTOR_DEPTH_ONLY
  #include_with_pragmas "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DOTS.hlsl"
  #include "ImpostorCore.hlsl"
@@ -86,6 +87,33 @@ Shader "Impostors/Hemi Octahedral" {
  #pragma multi_compile _ LOD_FADE_CROSSFADE
  #pragma vertex Vert
  #pragma fragment Frag
+ #define IMPOSTOR_URP_PREPASS
+ #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
+ #define IMPOSTOR_NORMALS
+ #pragma shader_feature_local _IMPOSTOR_MATERIAL_ADJUSTMENTS
+ #include_with_pragmas "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DOTS.hlsl"
+ #include "ImpostorCore.hlsl"
+ ENDHLSL
+ }
+ Pass {AlphaToMask On Name "ImpostorDepthOnly" Tags{"LightMode"="ImpostorDepthOnly"} ColorMask R
+ HLSLPROGRAM
+ #pragma target 5.0
+ #pragma multi_compile _ LOD_FADE_CROSSFADE
+ #pragma vertex Vert
+ #pragma fragment Frag
+ #define IMPOSTOR_PREPASS_TEST
+ #define IMPOSTOR_DEPTH_ONLY
+ #include_with_pragmas "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DOTS.hlsl"
+ #include "ImpostorCore.hlsl"
+ ENDHLSL
+ }
+ Pass {AlphaToMask On Name "ImpostorDepthNormals" Tags{"LightMode"="ImpostorDepthNormals"}
+ HLSLPROGRAM
+ #pragma target 5.0
+ #pragma multi_compile _ LOD_FADE_CROSSFADE
+ #pragma vertex Vert
+ #pragma fragment Frag
+ #define IMPOSTOR_PREPASS_TEST
  #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
  #define IMPOSTOR_NORMALS
  #pragma shader_feature_local _IMPOSTOR_MATERIAL_ADJUSTMENTS

@@ -36,6 +36,11 @@ namespace Impostors
             + "silhouettes at a small GPU cost.")]
         public bool Msaa = true;
 
+        [Tooltip("Draws impostor depth after URP's prepass instead of inside it, skipping pixels hidden behind opaque "
+            + "geometry. Impostors write per-pixel depth, so without this hidden impostors are fully shaded wherever the "
+            + "graphics API loses conservative depth (e.g. Vulkan).")]
+        public bool OccludedDepthRejection = true;
+
         [SerializeField]
         [HideInInspector]
         private Shader _compositeShader;
@@ -43,6 +48,8 @@ namespace Impostors
         private GlobalKeyword _noAdditionalLights;
         private Material _composite;
         private OffscreenPass _offscreenPass;
+        private PrepassHandoffPass _handoffPass;
+        private DepthPass _depthPass;
 
         public override void Create()
         {
@@ -52,6 +59,8 @@ namespace Impostors
                 _compositeShader = Shader.Find(COMPOSITE_SHADER_NAME);
             }
 
+            _handoffPass = new PrepassHandoffPass { renderPassEvent = RenderPassEvent.BeforeRenderingPrePasses };
+            _depthPass = new DepthPass { renderPassEvent = RenderPassEvent.AfterRenderingPrePasses };
             _offscreenPass = new OffscreenPass
             {
                 renderPassEvent = RenderPassEvent.AfterRenderingOpaques,
@@ -79,7 +88,8 @@ namespace Impostors
 
             bool offscreen = UsesOffscreenShading(renderingData.cameraData);
             ImpostorWorldRenderer.SetOffscreenShading(offscreen);
-            if (!offscreen)
+            bool ownDepth = UsesOwnedDepth(renderingData.cameraData);
+            if (!offscreen && !ownDepth)
             {
                 return;
             }
@@ -87,6 +97,18 @@ namespace Impostors
             if (!_composite)
             {
                 _composite = CoreUtils.CreateEngineMaterial(_compositeShader);
+            }
+
+            if (ownDepth)
+            {
+                _depthPass.Setup(_handoffPass, _composite);
+                renderer.EnqueuePass(_handoffPass);
+                renderer.EnqueuePass(_depthPass);
+            }
+
+            if (!offscreen)
+            {
+                return;
             }
 
             _offscreenPass.Setup(RenderScale, Sharpness, Msaa, _composite);
@@ -138,6 +160,13 @@ namespace Impostors
             }
 #endif
             return false;
+        }
+
+        private bool UsesOwnedDepth(in CameraData cameraData)
+        {
+            CameraType type = cameraData.cameraType;
+            return OccludedDepthRejection && _compositeShader && type is CameraType.Game or CameraType.SceneView
+                && !IsDebugViewActive(cameraData.camera);
         }
 
         private bool UsesOffscreenShading(in CameraData cameraData)

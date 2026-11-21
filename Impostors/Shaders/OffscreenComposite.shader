@@ -189,6 +189,26 @@ Shader "Hidden/Impostors/OffscreenComposite"
             }
             ENDHLSL
         }
+        Pass
+        {
+            Name "CopyOpaqueDepth"
+            ZTest Always
+            ZWrite Off
+            Cull Off
+
+            HLSLPROGRAM
+            #pragma target 4.5
+            #pragma vertex Vert
+            #pragma fragment FragCopy
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
+
+            float FragCopy(Varyings input) : SV_Target
+            {
+                return LOAD_TEXTURE2D_X(_BlitTexture, uint2(input.positionCS.xy)).r;
+            }
+            ENDHLSL
+        }
     }
     Fallback Off
 }

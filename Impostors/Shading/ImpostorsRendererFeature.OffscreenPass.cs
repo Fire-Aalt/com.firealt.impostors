@@ -31,6 +31,7 @@ namespace Impostors
             private static readonly int ImpostorDepth = Shader.PropertyToID("_ImpostorDepth");
             private static readonly int ImpostorSize = Shader.PropertyToID("_ImpostorSize");
             private static readonly int ImpostorSharpness = Shader.PropertyToID("_ImpostorSharpness");
+            private static readonly int SceneDepthTest = Shader.PropertyToID("_ImpostorSceneDepthTest");
 
             private float _scale;
             private float _sharpness;
@@ -43,6 +44,8 @@ namespace Impostors
                 _sharpness = sharpness;
                 _msaa = msaa;
                 CoreUtils.SetKeyword(composite, BUFFER_MSAA_KEYWORD, msaa);
+                // URP then guarantees scene depth by this pass's event, from its prepass or an early copy.
+                ConfigureInput(ScriptableRenderPassInput.Depth);
                 _composite = composite;
             }
 
@@ -61,7 +64,7 @@ namespace Impostors
                     SortingCriteria.CommonOpaque);
                 var filtering = new FilteringSettings(RenderQueueRange.opaque);
                 var parameters = new RendererListParams(rendering.cullResults, drawing, filtering);
-                AddShadePass(graph, parameters, native, width, height, color, depth);
+                AddShadePass(graph, parameters, native, width, height, color, depth, resources.cameraDepthTexture.IsValid());
                 AddCompositePass(graph, resources, width, height, color, depth);
             }
 
@@ -85,7 +88,7 @@ namespace Impostors
             }
 
             private void AddShadePass(RenderGraph graph, RendererListParams parameters, RenderTextureDescriptor native,
-                int width, int height, TextureHandle color, TextureHandle depth)
+                int width, int height, TextureHandle color, TextureHandle depth, bool sceneDepth)
             {
                 using IRasterRenderGraphBuilder builder = graph.AddRasterRenderPass(SHADE_PASS_NAME, out ShadeData data);
                 data.Renderers = graph.CreateRendererList(parameters);
@@ -93,6 +96,7 @@ namespace Impostors
                 data.NativeParams = new Vector4(native.width, native.height, 1 + 1f / native.width, 1 + 1f / native.height);
                 data.AlphaToMask = native.msaaSamples > 1 ? 1 : 0;
                 data.BufferAlphaToMask = _msaa ? 1 : 0;
+                data.SceneDepth = sceneDepth ? 1 : 0;
                 builder.UseRendererList(data.Renderers);
                 builder.SetRenderAttachment(color, 0);
                 builder.SetRenderAttachmentDepth(depth);
@@ -106,7 +110,9 @@ namespace Impostors
                     cmd.SetGlobalFloat(AlphaToMaskAvailable, pass.BufferAlphaToMask);
                     cmd.SetGlobalVector(ScaledScreenParams, pass.ScaledParams);
                     cmd.SetGlobalFloat(NativeScreenHeight, pass.NativeParams.y);
+                    cmd.SetGlobalFloat(SceneDepthTest, pass.SceneDepth);
                     cmd.DrawRendererList(pass.Renderers);
+                    cmd.SetGlobalFloat(SceneDepthTest, 0);
                     cmd.SetGlobalVector(ScaledScreenParams, pass.NativeParams);
                     cmd.SetGlobalFloat(AlphaToMaskAvailable, pass.AlphaToMask);
                 });
@@ -144,6 +150,7 @@ namespace Impostors
                 public Vector4 NativeParams;
                 public float AlphaToMask;
                 public float BufferAlphaToMask;
+                public float SceneDepth;
             }
 
             private sealed class CompositeData
