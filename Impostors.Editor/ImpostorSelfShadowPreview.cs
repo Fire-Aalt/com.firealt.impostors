@@ -28,7 +28,7 @@ namespace Impostors.Editor
             Undo.undoRedoPerformed += Invalidate;
         }
 
-        public static bool TryGetLayout(GameObject source, int sourceLod, int resolution, ImpostorSelfShadowQuality quality,
+        public static bool TryGetLayout(GameObject source, ImpostorSourceLod sourceLod, int resolution, ImpostorSelfShadowQuality quality,
             out ImpostorSelfShadowLayout layout)
         {
             layout = default;
@@ -65,7 +65,7 @@ namespace Impostors.Editor
 
         private static void Invalidate() => _geometryKey = null;
 
-        private static int GeometryKey(GameObject source, int sourceLod, Renderer[] renderers)
+        private static int GeometryKey(GameObject source, ImpostorSourceLod sourceLod, Renderer[] renderers)
         {
             var key = new HashCode();
             key.Add(source.GetEntityId());

@@ -119,7 +119,7 @@ namespace Impostors.Tests
         public void RemapIsStoredOnTheImpostorAndSurvivesRegeneration()
         {
             GameObject prefab = CreateGeneratorPrefab(out Material source);
-            Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, 0), Is.EqualTo(new[] { source }));
+            Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, ImpostorSourceLod.Lod0), Is.EqualTo(new[] { source }));
 
             Dictionary<Material, Material> targets = ImpostorMaterialRemap.Remap(prefab,
                 new Dictionary<Material, Shader> { [source] = ImpostorLit });
@@ -130,7 +130,7 @@ namespace Impostors.Tests
             AssertColor(copy.GetColor("_BaseColor"), source.GetColor("_BaseColor"));
             Assert.That(prefab.GetComponent<Impostor>().MaterialRemaps.Single().Target, Is.EqualTo(copy));
             AssertAllLodsUse(prefab, copy);
-            Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, 0), Is.Empty);
+            Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, ImpostorSourceLod.Lod0), Is.Empty);
 
             MeshLodGeneratorAuthoring.Generate(prefab);
             AssertAllLodsUse(prefab, copy);
@@ -170,7 +170,7 @@ namespace Impostors.Tests
             prefab.GetComponent<Impostor>().MaterialRemaps = new[] { new MaterialRemap { Source = source, Target = plain } };
             PrefabUtility.SavePrefabAsset(prefab);
             MeshLodGeneratorAuthoring.Generate(prefab);
-            Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, 0), Is.EqualTo(new[] { plain }));
+            Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, ImpostorSourceLod.Lod0), Is.EqualTo(new[] { plain }));
 
             Material fixedCopy = ImpostorMaterialRemap.Remap(prefab,
                 new Dictionary<Material, Shader> { [plain] = ImpostorLit })[plain];
@@ -206,7 +206,7 @@ namespace Impostors.Tests
 
             Assert.That(prefab.GetComponentInChildren<MeshRenderer>().sharedMaterial, Is.EqualTo(copy));
             Assert.That(prefab.GetComponent<Impostor>().MaterialRemaps.Single().Source, Is.EqualTo(source));
-            Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, 0), Is.Empty);
+            Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, ImpostorSourceLod.Lod0), Is.Empty);
         }
 
         [Test]

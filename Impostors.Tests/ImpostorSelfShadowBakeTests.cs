@@ -35,7 +35,7 @@ namespace Impostors.Tests
                 var settings = ScriptableObject.CreateInstance<ImpostorBakeSettings>();
                 settings.Frames = 2; settings.Resolution = 32; settings.Border = 2;
                 settings.Supersampling = 1; settings.AmbientSamples = 4; settings.SelfShadowing = false;
-                settings.KeepAdjustmentData = true;
+                settings.DiscardAdjustmentData = false;
                 AssetDatabase.CreateAsset(settings, folder + "/Settings.asset");
                 var material = new Material(ImpostorTestAssets.CaptureShader);
                 AssetDatabase.CreateAsset(material, folder + "/Source.mat");

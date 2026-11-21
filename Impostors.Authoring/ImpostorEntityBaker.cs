@@ -41,8 +41,14 @@ namespace Impostors.Authoring
             {
                 Definition = definition,
                 Layer = GetLayer(),
-                RealtimeShadows = authoring.RealtimeShadows,
+                RealtimeShadows = CastsRealtimeShadows(),
             });
+        }
+
+        /// <summary>Reads the LODs through the baker so changing a renderer's shadow mode rebakes the entity.</summary>
+        private bool CastsRealtimeShadows()
+        {
+            return Impostor.CastsRealtimeShadows(GetComponentInChildren<LODGroup>(), GetComponentsInChildren<Renderer>());
         }
 
         /// <summary>Lists every child entity so the strip systems can discard the authoring hierarchy.</summary>

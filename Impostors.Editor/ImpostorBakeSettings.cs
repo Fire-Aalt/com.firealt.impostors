@@ -1,12 +1,44 @@
+using System;
 using Impostors.Data;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Impostors.Editor
 {
-    [CreateAssetMenu(menuName = MENU_NAME)]
-    public sealed class ImpostorBakeSettings : ScriptableObject
+    /// <summary>The LODGroup level a bake captures, whatever the group's level count.</summary>
+    public enum ImpostorSourceLod
     {
+        [InspectorName("LOD0 (Best Quality)")]
+        Lod0 = 0,
+
+        [InspectorName("Last LOD (Best Transition)")]
+        LastLod = 1,
+    }
+
+    /// <summary>Memory savings applied to the baked texture arrays.</summary>
+    [Flags]
+    public enum ImpostorOptimizationFlags
+    {
+        None = 0,
+
+        /// <summary>Store normals, occlusion and smoothness at half the view resolution.</summary>
+        HalfResolutionSurface = 1 << 0,
+
+        /// <summary>Store depth at half the view resolution in BC4 instead of full-resolution R16.</summary>
+        CompactDepth = 1 << 1,
+
+        /// <summary>Drop the geometric normal and metalness that Normal Strength and Metallic Influence need.</summary>
+        DiscardAdjustmentData = 1 << 2,
+    }
+
+    [CreateAssetMenu(menuName = MENU_NAME)]
+    public sealed class ImpostorBakeSettings : ScriptableObject, ISerializationCallbackReceiver
+    {
+        public const ImpostorOptimizationFlags DEFAULT_OPTIMIZATIONS = ImpostorOptimizationFlags.HalfResolutionSurface
+            | ImpostorOptimizationFlags.CompactDepth | ImpostorOptimizationFlags.DiscardAdjustmentData;
+
         private const string MENU_NAME = "Impostors/Bake Settings";
+        private const int ABSENT = -1;
 
         public int Frames = 12;
 
@@ -23,9 +55,9 @@ namespace Impostors.Editor
             + "dimensions stay the same.")]
         public int Supersampling = 2;
 
-        [Tooltip("LODGroup level used as capture geometry. Choose LOD0 for the most detail, or the final mesh LOD for "
-            + "the closest match at the impostor transition.")]
-        public int SourceLod;
+        [Tooltip("LODGroup level used as capture geometry. LOD0 has the most detail; the last LOD matches what is on "
+            + "screen when the impostor takes over.")]
+        public ImpostorSourceLod SourceLod = ImpostorSourceLod.LastLod;
 
         // Kept for existing settings/API compatibility. Lit capture stores authored
         // material occlusion without multiplying in a separate geometric sky bake.
@@ -41,16 +73,76 @@ namespace Impostors.Editor
             + "quality uses more bake time and memory. Applies on rebake.")]
         public ImpostorSelfShadowQuality SelfShadowQuality = ImpostorSelfShadowQuality.Medium;
 
-        [Tooltip("Store normals, occlusion and smoothness at half the view resolution. Uses a quarter of that array's "
-            + "memory.")]
-        public bool HalfResolutionSurface = true;
+        [Tooltip("Half Resolution Surface: normals, occlusion and smoothness at half the view resolution, a quarter of "
+            + "that array's memory.\nCompact Depth: depth at half resolution in BC4 instead of full-resolution R16, a "
+            + "sixteenth of that array's memory; parallax is less precise on very large close-up impostors.\nDiscard "
+            + "Adjustment Data: drop the geometric normal and metalness that Normal Strength and Metallic Influence "
+            + "need, saving a full array while both stay at 1.")]
+        public ImpostorOptimizationFlags OptimizationFlags = DEFAULT_OPTIMIZATIONS;
 
-        [Tooltip("Store depth at half the view resolution in BC4 instead of full-resolution R16. Uses a sixteenth of "
-            + "that array's memory. Parallax precision is lower on very large close-up impostors.")]
-        public bool CompactDepth = true;
+        // Settings saved before Optimization Flags stored three toggles. A missing toggle keeps ABSENT.
+        [SerializeField, HideInInspector, FormerlySerializedAs("HalfResolutionSurface")]
+        private int _legacyHalfResolutionSurface = ABSENT;
 
-        [Tooltip("Keep the baked geometric normal and metalness that Normal Strength and Metallic Influence need. "
-            + "Disable to save a full array when both stay at 1.")]
-        public bool KeepAdjustmentData;
+        [SerializeField, HideInInspector, FormerlySerializedAs("CompactDepth")]
+        private int _legacyCompactDepth = ABSENT;
+
+        [SerializeField, HideInInspector, FormerlySerializedAs("KeepAdjustmentData")]
+        private int _legacyKeepAdjustmentData = ABSENT;
+
+        public bool HalfResolutionSurface
+        {
+            get => Has(ImpostorOptimizationFlags.HalfResolutionSurface);
+            set => Set(ImpostorOptimizationFlags.HalfResolutionSurface, value);
+        }
+
+        public bool CompactDepth
+        {
+            get => Has(ImpostorOptimizationFlags.CompactDepth);
+            set => Set(ImpostorOptimizationFlags.CompactDepth, value);
+        }
+
+        public bool DiscardAdjustmentData
+        {
+            get => Has(ImpostorOptimizationFlags.DiscardAdjustmentData);
+            set => Set(ImpostorOptimizationFlags.DiscardAdjustmentData, value);
+        }
+
+        /// <summary>The level of <paramref name="group"/> that <see cref="SourceLod"/> selects.</summary>
+        public static int ResolveSourceLod(ImpostorSourceLod sourceLod, LODGroup group)
+        {
+            return sourceLod == ImpostorSourceLod.Lod0 || !group ? 0 : Mathf.Max(group.lodCount - 1, 0);
+        }
+
+        void ISerializationCallbackReceiver.OnBeforeSerialize()
+        {
+        }
+
+        void ISerializationCallbackReceiver.OnAfterDeserialize()
+        {
+            // Source LOD used to be a level index. Anything past LOD0 now means the last level.
+            if ((int)SourceLod > (int)ImpostorSourceLod.LastLod)
+            {
+                SourceLod = ImpostorSourceLod.LastLod;
+            }
+
+            if (_legacyHalfResolutionSurface == ABSENT && _legacyCompactDepth == ABSENT && _legacyKeepAdjustmentData == ABSENT)
+            {
+                return;
+            }
+
+            // Absent toggles take their old defaults: half surface and compact depth on, adjustment data discarded.
+            HalfResolutionSurface = _legacyHalfResolutionSurface != 0;
+            CompactDepth = _legacyCompactDepth != 0;
+            DiscardAdjustmentData = _legacyKeepAdjustmentData != 1;
+            _legacyHalfResolutionSurface = _legacyCompactDepth = _legacyKeepAdjustmentData = ABSENT;
+        }
+
+        private bool Has(ImpostorOptimizationFlags flag) => (OptimizationFlags & flag) != 0;
+
+        private void Set(ImpostorOptimizationFlags flag, bool value)
+        {
+            OptimizationFlags = value ? OptimizationFlags | flag : OptimizationFlags & ~flag;
+        }
     }
 }

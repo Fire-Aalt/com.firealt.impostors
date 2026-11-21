@@ -557,7 +557,7 @@ namespace Impostors.Editor
                     Surface = CreateArray(name + SURFACE_SUFFIX, surfaceSize, slices, TextureFormat.BC7, true),
                     Depth = CreateArray(name + DEPTH_SUFFIX, depthSize, slices, depthFormat, true),
                     Reflectance = CreateArray(name + REFLECTANCE_SUFFIX, size, slices, TextureFormat.BC7, true),
-                    MaterialData = settings.KeepAdjustmentData
+                    MaterialData = !settings.DiscardAdjustmentData
                         ? CreateArray(name + MATERIAL_DATA_SUFFIX, size, slices, TextureFormat.BC7, true)
                         : null,
                     Emission = CreateArray(name + EMISSION_SUFFIX, size, slices, TextureFormat.RGBAHalf, true),

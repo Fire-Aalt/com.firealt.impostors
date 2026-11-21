@@ -120,7 +120,9 @@ namespace Impostors.Tests
 
             ImpostorWorldRenderer renderer = Renderers().Single();
             Assert.That(renderer.InstanceCount, Is.EqualTo(1));
-            Assert.That(renderer.LiveShadows, Is.False);
+            // Every LOD renderer of the fixture casts shadows, so the baked impostor does too.
+            Assert.That(_prefab.GetComponent<Impostor>().RealtimeShadows, Is.True);
+            Assert.That(renderer.LiveShadows, Is.True);
             Assert.That(renderer.Layer, Is.EqualTo(_prefab.layer));
             SceneSystem.UnloadScene(_world.Unmanaged, section);
         }

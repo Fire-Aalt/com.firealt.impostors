@@ -7,12 +7,11 @@ namespace Impostors.Editor
     {
         private const string MISSING_SOURCE = "A source prefab with a LODGroup is required.";
         private const string INVALID_LOD_GROUP = "The source prefab must contain exactly one nonempty LODGroup.";
-        private const string MISSING_SOURCE_LOD = "The selected capture LOD does not exist in the source LODGroup.";
         private const string EMPTY_SOURCE_LOD = "The selected source LOD must contain static mesh renderers.";
         private const string INVALID_SOURCE_RENDERER = "The selected LOD requires static MeshRenderers under the source "
             + "prefab, with meshes and one valid material per submesh.";
 
-        public static Renderer[] GetCaptureRenderers(GameObject source, int sourceLod = 0)
+        public static Renderer[] GetCaptureRenderers(GameObject source, ImpostorSourceLod sourceLod)
         {
             if (!source)
             {
@@ -25,12 +24,7 @@ namespace Impostors.Editor
                 throw new ArgumentException(INVALID_LOD_GROUP);
             }
 
-            if (sourceLod < 0 || sourceLod >= groups[0].lodCount)
-            {
-                throw new ArgumentOutOfRangeException(nameof(sourceLod), MISSING_SOURCE_LOD);
-            }
-
-            Renderer[] renderers = groups[0].GetLODs()[sourceLod].renderers;
+            Renderer[] renderers = groups[0].GetLODs()[ImpostorBakeSettings.ResolveSourceLod(sourceLod, groups[0])].renderers;
             if (renderers == null || renderers.Length == 0)
             {
                 throw new ArgumentException(EMPTY_SOURCE_LOD);

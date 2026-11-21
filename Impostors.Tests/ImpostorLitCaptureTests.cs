@@ -31,7 +31,7 @@ namespace Impostors.Tests
             {
                 var settings = ScriptableObject.CreateInstance<ImpostorBakeSettings>();
                 settings.Frames = 4; settings.Resolution = 32; settings.Border = 2;
-                settings.HalfResolutionSurface = false; settings.CompactDepth = false; settings.KeepAdjustmentData = true;
+                settings.HalfResolutionSurface = false; settings.CompactDepth = false; settings.DiscardAdjustmentData = false;
                 settings.Supersampling = 1; settings.AmbientSamples = 4; settings.SelfShadowing = false;
                 AssetDatabase.CreateAsset(settings, folder + "/Settings.asset");
                 for (int workflow = 0; workflow < 3; workflow++)
@@ -153,7 +153,7 @@ namespace Impostors.Tests
             {
                 var settings = ScriptableObject.CreateInstance<ImpostorBakeSettings>();
                 settings.Frames = 4; settings.Resolution = 32; settings.Border = 2;
-                settings.HalfResolutionSurface = false; settings.CompactDepth = false; settings.KeepAdjustmentData = true;
+                settings.HalfResolutionSurface = false; settings.CompactDepth = false; settings.DiscardAdjustmentData = false;
                 settings.Supersampling = 1; settings.SelfShadowing = false; settings.AmbientSamples = 4;
                 AssetDatabase.CreateAsset(settings, folder + "/Settings.asset");
                 var texture = new Texture2D(4, 4, TextureFormat.RGBA32, false, true);

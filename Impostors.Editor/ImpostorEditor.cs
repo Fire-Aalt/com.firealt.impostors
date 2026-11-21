@@ -65,7 +65,8 @@ namespace Impostors.Editor
             {
                 _nextCheck = EditorApplication.timeSinceStartup + CHECK_INTERVAL;
                 CheckStatus(source, settings, component.Definition);
-                _uncapturable = ImpostorMaterialRemap.UncapturableMaterials(source, settings ? settings.SourceLod : 0);
+                _uncapturable = ImpostorMaterialRemap.UncapturableMaterials(source,
+                    settings ? settings.SourceLod : ImpostorSourceLod.LastLod);
                 _shaderChecks.Clear();
             }
 
@@ -114,7 +115,6 @@ namespace Impostors.Editor
             }
 
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(Impostor.BakeSettings)));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(Impostor.RealtimeShadows)));
             var component = (Impostor)target;
             Dictionary<Material, Material> previous = ImpostorMaterialRemap.Remaps(component);
             SerializedProperty remaps = serializedObject.FindProperty(nameof(Impostor.MaterialRemaps));

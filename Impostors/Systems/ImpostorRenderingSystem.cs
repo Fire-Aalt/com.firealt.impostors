@@ -56,7 +56,7 @@ namespace Impostors
 
         /// <summary>
         /// Converts an <see cref="Impostor"/> prefab at runtime into the single-entity prefab that baking produces.
-        /// Layer comes from the prefab root and shadows from its Realtime Shadows toggle. Repeated calls return the same entity.
+        /// Layer comes from the prefab root; shadows are cast when every LOD renderer casts them. Repeated calls return the same entity.
         /// </summary>
         public Entity CreatePrefab(GameObject prefab)
         {

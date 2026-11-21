@@ -16,8 +16,6 @@ namespace Impostors.Editor
         private const string MATRIX_LABEL = "Angle matrix";
         private const string FINAL_RESOLUTION_LABEL = "Final resolution";
         private const string MEMORY_LABEL = "Baked texture memory";
-        private const string SOURCE_LOD_LABEL = "Source LOD";
-        private const string NO_LOD_GROUP_LABEL = "Choose a prefab with a LODGroup";
         private const string UNKNOWN_MEMORY = "n/a";
         private const string SQUARE_FORMAT = "{0:N0} × {0:N0}";
         private const string SQUARE_PIXELS_FORMAT = SQUARE_FORMAT + " px";
@@ -25,6 +23,7 @@ namespace Impostors.Editor
         private const string INVALID_PADDING =
             "Padding leaves no usable pixels. Reduce Border or increase the final resolution.";
         private const string UNKNOWN_SHADOW_MEMORY = "Choose a valid LOD source prefab to estimate self-shadow memory.";
+        private const string SCRIPT_PROPERTY = "m_Script";
         private const int DEFAULT_FRAMES = 16;
         private const int MINIMUM_FRAMES = 2;
         private const int BYTES_PER_MEBIBYTE = 1024 * 1024;
@@ -49,7 +48,6 @@ namespace Impostors.Editor
                 }
 
                 EditorGUILayout.Space();
-                DrawSourceLod(settings.FindProperty(nameof(ImpostorBakeSettings.SourceLod)), source);
                 DrawRemainingProperties(settings);
             }
             finally
@@ -58,38 +56,12 @@ namespace Impostors.Editor
             }
         }
 
-        public static string[] SourceLodLabels(LODGroup group)
-        {
-            if (!group)
-            {
-                return Array.Empty<string>();
-            }
-
-            int count = group.lodCount;
-            return Enumerable.Range(0, count).Select(index => SourceLodLabel(index, count)).ToArray();
-        }
-
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
             _lodSource = (GameObject)EditorGUILayout.ObjectField(LOD_SOURCE_LABEL, _lodSource, typeof(GameObject), false);
             DrawSettings(serializedObject, _lodSource);
             serializedObject.ApplyModifiedProperties();
-        }
-
-        private static string SourceLodLabel(int index, int count)
-        {
-            if (count == 1)
-            {
-                return "LOD0 - Best Quality / Best Transition";
-            }
-
-            if (index == 0)
-            {
-                return "LOD0 - Best Quality";
-            }
-
-            return index == count - 1 ? $"LOD{index} - Best Transition" : $"LOD{index}";
         }
 
         /// <summary>Draws the angle matrix and final resolution. Returns the frame count and the per-view resolution.</summary>
@@ -119,8 +91,9 @@ namespace Impostors.Editor
                 SquareLabels(totals), totals);
             resolution.intValue = selectedTotal / Mathf.Max(frames.intValue, 1);
 
-            bool halfSurface = settings.FindProperty(nameof(ImpostorBakeSettings.HalfResolutionSurface)).boolValue;
-            bool compactDepth = settings.FindProperty(nameof(ImpostorBakeSettings.CompactDepth)).boolValue;
+            ImpostorOptimizationFlags flags = Optimizations(settings);
+            bool halfSurface = (flags & ImpostorOptimizationFlags.HalfResolutionSurface) != 0;
+            bool compactDepth = (flags & ImpostorOptimizationFlags.CompactDepth) != 0;
             EditorGUILayout.LabelField("Base colour per angle", string.Format(SQUARE_PIXELS_FORMAT, resolution.intValue));
             EditorGUILayout.LabelField("Surface per angle",
                 string.Format(SQUARE_PIXELS_FORMAT, halfSurface ? resolution.intValue / 2 : resolution.intValue));
@@ -134,9 +107,10 @@ namespace Impostors.Editor
         private static void DrawMemory(SerializedObject settings, GameObject source, int frames, int resolution)
         {
             EditorGUILayout.LabelField(MEMORY_LABEL, EditorStyles.boldLabel);
-            bool halfSurface = settings.FindProperty(nameof(ImpostorBakeSettings.HalfResolutionSurface)).boolValue;
-            bool compactDepth = settings.FindProperty(nameof(ImpostorBakeSettings.CompactDepth)).boolValue;
-            bool adjustmentData = settings.FindProperty(nameof(ImpostorBakeSettings.KeepAdjustmentData)).boolValue;
+            ImpostorOptimizationFlags flags = Optimizations(settings);
+            bool halfSurface = (flags & ImpostorOptimizationFlags.HalfResolutionSurface) != 0;
+            bool compactDepth = (flags & ImpostorOptimizationFlags.CompactDepth) != 0;
+            bool adjustmentData = (flags & ImpostorOptimizationFlags.DiscardAdjustmentData) == 0;
             ImpostorCaptureLayout.ArrayMemory arrays = ImpostorCaptureLayout.EstimateArrays(frames, resolution, true,
                 halfSurface, compactDepth, adjustmentData);
             ImpostorCaptureLayout.ArrayMemory rawArrays = ImpostorCaptureLayout.EstimateArrays(frames, resolution, false,
@@ -184,7 +158,7 @@ namespace Impostors.Editor
 
             var quality = (ImpostorSelfShadowQuality)settings.FindProperty(nameof(ImpostorBakeSettings.SelfShadowQuality))
                 .intValue;
-            int sourceLod = settings.FindProperty(nameof(ImpostorBakeSettings.SourceLod)).intValue;
+            var sourceLod = (ImpostorSourceLod)settings.FindProperty(nameof(ImpostorBakeSettings.SourceLod)).intValue;
             if (!ImpostorSelfShadowPreview.TryGetLayout(source, sourceLod, resolution, quality, out ImpostorSelfShadowLayout layout))
             {
                 return false;
@@ -195,6 +169,7 @@ namespace Impostors.Editor
             return true;
         }
 
+        /// <summary>Draws the other settings. The script field is hidden, and so is the quality while self-shadowing is off.</summary>
         private static void DrawRemainingProperties(SerializedObject settings)
         {
             bool selfShadows = settings.FindProperty(nameof(ImpostorBakeSettings.SelfShadowing)).boolValue;
@@ -203,20 +178,19 @@ namespace Impostors.Editor
             while (property.NextVisible(enterChildren))
             {
                 enterChildren = false;
-                if (property.propertyPath is nameof(ImpostorBakeSettings.Frames) or nameof(ImpostorBakeSettings.Resolution)
-                    or nameof(ImpostorBakeSettings.SourceLod))
-                {
-                    continue;
-                }
-
-                bool script = property.propertyType == SerializedPropertyType.ObjectReference
-                    && property.objectReferenceValue is MonoScript;
-                bool inactiveQuality = property.propertyPath == nameof(ImpostorBakeSettings.SelfShadowQuality) && !selfShadows;
-                using (new EditorGUI.DisabledScope(script || inactiveQuality))
+                bool hidden = property.propertyPath is SCRIPT_PROPERTY or nameof(ImpostorBakeSettings.Frames)
+                        or nameof(ImpostorBakeSettings.Resolution)
+                    || (property.propertyPath == nameof(ImpostorBakeSettings.SelfShadowQuality) && !selfShadows);
+                if (!hidden)
                 {
                     EditorGUILayout.PropertyField(property, true);
                 }
             }
+        }
+
+        private static ImpostorOptimizationFlags Optimizations(SerializedObject settings)
+        {
+            return (ImpostorOptimizationFlags)settings.FindProperty(nameof(ImpostorBakeSettings.OptimizationFlags)).intValue;
         }
 
         private static string[] SquareLabels(int[] values)
@@ -238,24 +212,6 @@ namespace Impostors.Editor
                 GUILayout.Label(compressed, style);
                 GUILayout.Label(uncompressed, style);
             }
-        }
-
-        private static void DrawSourceLod(SerializedProperty property, GameObject source)
-        {
-            LODGroup[] groups = source ? source.GetComponentsInChildren<LODGroup>(true) : Array.Empty<LODGroup>();
-            string[] labels = groups.Length == 1 ? SourceLodLabels(groups[0]) : Array.Empty<string>();
-            if (labels.Length == 0)
-            {
-                using (new EditorGUI.DisabledScope(true))
-                {
-                    EditorGUILayout.Popup(SOURCE_LOD_LABEL, 0, new[] { NO_LOD_GROUP_LABEL });
-                }
-
-                return;
-            }
-
-            property.intValue = EditorGUILayout.Popup(new GUIContent(SOURCE_LOD_LABEL, property.tooltip),
-                Mathf.Clamp(property.intValue, 0, labels.Length - 1), labels);
         }
 
         private void OnEnable()

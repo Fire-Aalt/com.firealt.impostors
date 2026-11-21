@@ -68,7 +68,7 @@ namespace Impostors.Editor
         /// Materials of the prefab's capture renderers that can't be captured. A generator prefab that isn't generated
         /// yet is checked through its source model and material remaps. Empty when the renderers can't be resolved.
         /// </summary>
-        public static Material[] UncapturableMaterials(GameObject source, int sourceLod)
+        public static Material[] UncapturableMaterials(GameObject source, ImpostorSourceLod sourceLod)
         {
             return CaptureMaterials(source, sourceLod)
                 .Where(material => material && !ImpostorCaptureMaterial.IsCaptureReady(material, out _))
@@ -238,7 +238,7 @@ namespace Impostors.Editor
             return copied;
         }
 
-        private static IEnumerable<Material> CaptureMaterials(GameObject source, int sourceLod)
+        private static IEnumerable<Material> CaptureMaterials(GameObject source, ImpostorSourceLod sourceLod)
         {
             if (!source)
             {
