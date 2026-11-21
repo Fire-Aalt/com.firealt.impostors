@@ -27,7 +27,7 @@ half4 Fragment(Varyings input) : SV_Target
     surface.alpha = 1;
     surface.occlusion = 1;
     data.bakedGI = SampleSH(data.normalWS);
-    data.shadowCoord = TransformWorldToShadowCoord(data.positionWS);
+    data.shadowCoord = TransformWorldToShadowCoord(data.positionWS, false);
     data.shadowMask = 1;
-    return UniversalFragmentPBR(data, surface);
+    return UniversalFragmentPBR(data, surface, false, true, false, false, true, false, true);
 }

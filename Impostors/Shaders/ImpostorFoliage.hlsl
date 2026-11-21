@@ -1,6 +1,8 @@
 #ifndef IMPOSTOR_FOLIAGE_INCLUDED
 #define IMPOSTOR_FOLIAGE_INCLUDED
 
+#include "Packages/com.unity.render-pipelines.universal/Shaders/Utils/SurfaceType.hlsl"
+
 // Custom Function nodes of the ImpostorFoliage graph.
 // Capture renders the rest pose without light-dependent terms, so both functions do nothing
 // while the static _ImpostorCaptureEnabled keyword is on.
@@ -29,12 +31,9 @@ void ImpostorFoliageSubsurface_float(float3 Albedo, float3 PositionWS, float3 No
 {
     Out = 0;
 #if defined(UNIVERSAL_LIGHTING_INCLUDED) && !defined(SHADERGRAPH_PREVIEW) && !defined(_ImpostorCaptureEnabled)
-#if defined(_MAIN_LIGHT_SHADOWS_SCREEN) && !defined(_SURFACE_TYPE_TRANSPARENT)
-    float4 shadowCoord = ComputeScreenPos(TransformWorldToHClip(PositionWS));
-#else
-    float4 shadowCoord = TransformWorldToShadowCoord(PositionWS);
-#endif
-    Light light = GetMainLight(shadowCoord, PositionWS, half4(1, 1, 1, 1));
+    bool transparent = IsSurfaceTypeTransparent();
+    float4 shadowCoord = TransformWorldToShadowCoord(PositionWS, transparent);
+    Light light = GetMainLight(shadowCoord, PositionWS, half4(1, 1, 1, 1), true, transparent);
     float3 transmitted = SampleSH(NormalWS) * Ambient;
 #if defined(_LIGHT_LAYERS)
     [branch] if (IsMatchingLightLayer(light.layerMask, GetMeshRenderingLayer()))

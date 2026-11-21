@@ -37,6 +37,8 @@ namespace Impostors.Tests
             var reflectionMode = RenderSettings.defaultReflectionMode;
             var reflection = RenderSettings.customReflectionTexture;
             float reflectionIntensity = RenderSettings.reflectionIntensity;
+            (bool Enabled, FogMode Mode, Color Color, float Start, float End) fog = (RenderSettings.fog, RenderSettings.fogMode,
+                RenderSettings.fogColor, RenderSettings.fogStartDistance, RenderSettings.fogEndDistance);
             bool suspended = ImpostorWorldRenderer.EditorRenderingSuspended;
             bool asyncShaders = ShaderUtil.allowAsyncCompilation;
             var active = RenderTexture.active;
@@ -155,6 +157,23 @@ namespace Impostors.Tests
                 Assert.That(renderer.LightCallbacks, Is.GreaterThan(0), "Realtime cascades must render the caster.");
                 Assert.That(Difference(native, withVolume), Is.LessThan(.00001), "The volume must have zero weight inside full cascade coverage.");
 
+                // Linear fog is exact: past its end a surface is the fog colour, before its start it is untouched.
+                // The impostor sits about 20 units from the camera.
+                RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear; RenderSettings.fogColor = Color.red;
+                RenderSettings.fogStartDistance = 1000; RenderSettings.fogEndDistance = 2000;
+                Assert.That(Difference(await Draw(0), native), Is.LessThan(.00001), "Fog that starts beyond the impostor must leave it unchanged.");
+                RenderSettings.fogStartDistance = 0; RenderSettings.fogEndDistance = 1;
+                Color[] fogged = await Draw(0);
+                int[] covered = Enumerable.Range(0, native.Length).Where(i => native[i].maxColorComponent > .001f).ToArray();
+                Assert.That(covered, Is.Not.Empty);
+                Assert.That(covered.All(i => Mathf.Abs(fogged[i].r - 1) < .001f && fogged[i].g < .001f && fogged[i].b < .001f), Is.True,
+                    "Fog that ends before the impostor must replace its colour.");
+                RenderSettings.fogStartDistance = 0; RenderSettings.fogEndDistance = 40;
+                Color[] partial = await Draw(0);
+                Assert.That(covered.Average(i => (double)partial[i].r - native[i].r), Is.GreaterThan(.1), "Fog across the impostor's depth must blend in part of its colour.");
+                Assert.That(covered.All(i => partial[i].r < 1 - .001f), Is.True, "Fog across the impostor's depth must not replace its colour.");
+                RenderSettings.fog = false;
+
                 async Task<Color[]> Draw(float strength)
                 {
                     definition.Material.SetFloat(ImpostorShaderProperties.SelfShadowStrength, strength);
@@ -189,6 +208,8 @@ namespace Impostors.Tests
                 RenderSettings.ambientProbe = previousAmbient; RenderSettings.sun = previousSun;
                 RenderSettings.defaultReflectionMode = reflectionMode; RenderSettings.customReflectionTexture = reflection;
                 RenderSettings.reflectionIntensity = reflectionIntensity;
+                (RenderSettings.fog, RenderSettings.fogMode, RenderSettings.fogColor, RenderSettings.fogStartDistance,
+                    RenderSettings.fogEndDistance) = fog;
                 RenderTexture.active = active;
                 ImpostorWorldRenderer.EditorRenderingSuspended = suspended;
                 ShaderUtil.allowAsyncCompilation = asyncShaders;

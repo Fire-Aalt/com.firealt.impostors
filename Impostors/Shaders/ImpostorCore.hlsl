@@ -8,10 +8,20 @@
 #undef _ADDITIONAL_LIGHTS
 #undef _ADDITIONAL_LIGHTS_VERTEX
 #endif
-#define _SPECULAR_SETUP 1
 #include "ImpostorSunShadows.hlsl"
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/Shaders/Utils/SpecularHighlights.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/Shaders/Utils/EnvironmentReflections.hlsl"
 #include "ImpostorMainLight.hlsl"
+// Distance fog follows the reconstructed surface rather than the proxy quad. BlendDistanceFog reads the
+// eye depth from SV_Position.w in perspective and the device depth from SV_Position.z in orthographic views.
+float4 ImpostorFogPosition(float4 positionCS)
+{
+ float depth=positionCS.z/positionCS.w;
+ // OpenGL clip depth spans -1 to 1, while SV_Position depth spans 0 to 1 on every API.
+ if(UNITY_NEAR_CLIP_VALUE<0)depth=depth*.5+.5;
+ return float4(0,0,depth,positionCS.w);
+}
 #if defined(LOD_FADE_CROSSFADE)
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/LODCrossFade.hlsl"
 #endif
@@ -297,8 +307,8 @@ Hit Reconstruct(Varyings v){
 // the angle between the view ray and the direction towards the sun. It uses the
 // same main light, cookie, layer and shadow/baked visibility as URP's direct term.
 half3 ImpostorSubsurface(InputData data,SurfaceData surface,half3 albedo){
- AmbientOcclusionFactor aoFactor=CreateAmbientOcclusionFactor(data,surface);
- Light light=GetMainLight(data,CalculateShadowMask(data),aoFactor);
+ AmbientOcclusionFactor aoFactor=CreateAmbientOcclusionFactor(data,surface,false);
+ Light light=GetMainLight(data,CalculateShadowMask(data),aoFactor,true,false);
  float3 transmitted=data.bakedGI*_SubsurfaceScatteringAmbient;
  // Like UniversalFragmentPBR, test layers only when enabled: otherwise the mask is unset.
  #if defined(_LIGHT_LAYERS)
@@ -375,15 +385,12 @@ void Frag(Varyings v,out float4 color:SV_Target,out float depth:IMPOSTOR_DEPTH){
  #if defined(_ADDITIONAL_LIGHTS_VERTEX)
  data.vertexLighting=VertexLighting(ws,normal);
  #endif
- #if defined(_MAIN_LIGHT_SHADOWS_SCREEN)
- data.shadowCoord=ComputeScreenPos(cs);
- #else
  // The reconstructed surface is only as precise as the blended, compressed depth views,
- // so it can sit behind the depth the impostor casts. Look up realtime shadows from a
+ // so it can sit behind the depth the impostor casts. Look up cascaded shadows from a
  // point moved towards the light by a fraction of the capture radius to avoid acne.
- float3 shadowOffsetOS=TransformWorldToObjectDir(_MainLightPosition.xyz)*(_ShadowReceiverBias*_CaptureRadius);
- data.shadowCoord=TransformWorldToShadowCoord(TransformObjectToWorld(h.positionOS+shadowOffsetOS));
- #endif
+ // Screen-space shadows are looked up at this pixel, so they take the surface itself.
+ float3 shadowOffsetOS=MainLightScreenShadowsAvailable()?0:TransformWorldToObjectDir(_MainLightPosition.xyz)*(_ShadowReceiverBias*_CaptureRadius);
+ data.shadowCoord=TransformWorldToShadowCoord(TransformObjectToWorld(h.positionOS+shadowOffsetOS),false);
  data.normalizedScreenSpaceUV=GetNormalizedScreenSpaceUV(v.positionCS);
  SurfaceData surface=(SurfaceData)0;
  // Preserve diffuse energy and F0 for both source workflows using URP's BRDF.
@@ -436,8 +443,9 @@ void Frag(Varyings v,out float4 color:SV_Target,out float depth:IMPOSTOR_DEPTH){
  // Raw captured albedo, independent of the surface grading and gain above.
  surface.emission+=ImpostorSubsurface(data,surface,h.albedo);
  #endif
- color=UniversalFragmentPBR(data,surface);color.a=outputCoverage;
- color.rgb=MixFog(color.rgb,ComputeFogFactor(cs.z));
+ color=UniversalFragmentPBR(data,surface,true,UseSpecularHighlights(),false,false,true,false,UseEnvironmentReflections());
+ color.a=outputCoverage;
+ color.rgb=BlendDistanceFog(color.rgb,ImpostorFogPosition(cs));
  #endif
 }
 #endif
