@@ -115,9 +115,30 @@ namespace Impostors.Editor
 
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(Impostor.BakeSettings)));
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(Impostor.RealtimeShadows)));
+            var component = (Impostor)target;
+            Dictionary<Material, Material> previous = ImpostorMaterialRemap.Remaps(component);
+            SerializedProperty remaps = serializedObject.FindProperty(nameof(Impostor.MaterialRemaps));
+            // Remaps only exist after a remap, so a prefab whose materials were always capture-ready never shows them.
+            if (remaps.arraySize > 0)
+            {
+                EditorGUILayout.PropertyField(remaps, true);
+            }
+
             if (serializedObject.ApplyModifiedProperties())
             {
                 _nextCheck = 0;
+                SyncRemaps(component, previous);
+            }
+        }
+
+        /// <summary>Applies edited remaps to the prefab's renderers, restoring the source of a removed remap.</summary>
+        private static void SyncRemaps(Impostor component, Dictionary<Material, Material> previous)
+        {
+            GameObject root = component.transform.root.gameObject;
+            if (ImpostorMaterialRemap.SyncRemaps(root, previous, ImpostorMaterialRemap.Remaps(component), true)
+                && EditorUtility.IsPersistent(root))
+            {
+                PrefabUtility.SavePrefabAsset(root);
             }
         }
 

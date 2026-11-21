@@ -12,7 +12,8 @@ namespace Impostors.Editor
 {
     /// <summary>
     /// Replaces materials an impostor can't capture with capture-ready copies on a chosen shader. The copies are saved
-    /// next to their source materials and used by the impostor prefab only; the source model is left untouched.
+    /// next to their source materials and recorded on the prefab's Impostor component, which applies them to every
+    /// renderer of the prefab, including ones a Mesh LOD Generator builds later. The source model is left untouched.
     /// </summary>
     public static class ImpostorMaterialRemap
     {
@@ -97,9 +98,8 @@ namespace Impostors.Editor
         }
 
         /// <summary>
-        /// Writes a capture-ready copy of each material on its chosen shader, then makes the prefab use the copies: through
-        /// the Mesh LOD Generator's remaps (and a regenerate) when it has one, otherwise on its renderers directly.
-        /// Returns the copies keyed by source material.
+        /// Writes a capture-ready copy of each material on its chosen shader, records the copies as the Impostor
+        /// component's remaps and applies them to the prefab's renderers. Returns the copies keyed by source material.
         /// </summary>
         public static Dictionary<Material, Material> Remap(GameObject source, IReadOnlyDictionary<Material, Shader> shaders)
         {
@@ -127,6 +127,74 @@ namespace Impostors.Editor
         /// Copies every property of <paramref name="to"/>'s shader that <paramref name="from"/> has under the same name,
         /// the same name in another case, or a common alias. Returns "target←source" for each copied property.
         /// </summary>
+        /// <summary>The Impostor component's complete remaps, keyed by source material. Later entries win.</summary>
+        public static Dictionary<Material, Material> Remaps(Impostor impostor)
+        {
+            var remaps = new Dictionary<Material, Material>();
+            foreach (MaterialRemap remap in impostor ? impostor.MaterialRemaps ?? Array.Empty<MaterialRemap>()
+                         : Array.Empty<MaterialRemap>())
+            {
+                if (remap.Source && remap.Target)
+                {
+                    remaps[remap.Source] = remap.Target;
+                }
+            }
+
+            return remaps;
+        }
+
+        /// <summary>Replaces remapped materials on every renderer under <paramref name="root"/>. Returns whether any changed.</summary>
+        public static bool ApplyRemaps(GameObject root, IReadOnlyDictionary<Material, Material> remaps, bool recordUndo = false)
+        {
+            bool changed = false;
+            foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+            {
+                Material[] materials = renderer.sharedMaterials;
+                bool replaced = false;
+                for (int i = 0; i < materials.Length; i++)
+                {
+                    if (materials[i] && remaps.TryGetValue(materials[i], out Material target) && target != materials[i])
+                    {
+                        materials[i] = target;
+                        replaced = true;
+                    }
+                }
+
+                if (replaced)
+                {
+                    if (recordUndo)
+                    {
+                        Undo.RecordObject(renderer, nameof(ApplyRemaps));
+                    }
+
+                    renderer.sharedMaterials = materials;
+                    changed = true;
+                }
+            }
+
+            return changed;
+        }
+
+        /// <summary>
+        /// Brings the renderers under <paramref name="root"/> in line with edited remaps: targets of removed or changed
+        /// remaps go back to their source material, then the current remaps are applied.
+        /// </summary>
+        public static bool SyncRemaps(GameObject root, IReadOnlyDictionary<Material, Material> previous,
+            IReadOnlyDictionary<Material, Material> current, bool recordUndo = false)
+        {
+            var restore = new Dictionary<Material, Material>();
+            foreach ((Material source, Material target) in previous)
+            {
+                if (!current.TryGetValue(source, out Material now) || now != target)
+                {
+                    restore[target] = source;
+                }
+            }
+
+            bool restored = ApplyRemaps(root, restore, recordUndo);
+            return ApplyRemaps(root, current, recordUndo) | restored;
+        }
+
         public static List<string> Transfer(Material from, Material to)
         {
             var copied = new List<string>();
@@ -191,8 +259,7 @@ namespace Impostors.Editor
 
             try
             {
-                Dictionary<Material, Material> remaps = MeshLodGeneratorAuthoring.MaterialRemaps(
-                    source.GetComponent<MeshLodGenerator>());
+                Dictionary<Material, Material> remaps = Remaps(source.GetComponent<Impostor>());
                 return MeshLodGeneratorAuthoring.SourceRenderers(source.GetComponent<MeshLodGenerator>().SourceModel)
                     .SelectMany(renderer => renderer.sharedMaterials)
                     .Select(material => material && remaps.TryGetValue(material, out Material target) ? target : material)
@@ -291,25 +358,18 @@ namespace Impostors.Editor
 
         private static void Apply(string path, IReadOnlyDictionary<Material, Material> targets)
         {
-            bool generated;
             GameObject contents = PrefabUtility.LoadPrefabContents(path);
             try
             {
-                generated = contents.TryGetComponent(out MeshLodGenerator generator);
-                if (generated)
+                if (!contents.TryGetComponent(out Impostor impostor))
                 {
-                    generator.MaterialRemaps = UpdatedRemaps(generator.MaterialRemaps, targets);
-                }
-                else
-                {
-                    foreach (Renderer renderer in contents.GetComponentsInChildren<Renderer>(true))
-                    {
-                        renderer.sharedMaterials = renderer.sharedMaterials
-                            .Select(material => material && targets.TryGetValue(material, out Material target) ? target : material)
-                            .ToArray();
-                    }
+                    impostor = contents.AddComponent<Impostor>();
                 }
 
+                impostor.MaterialRemaps = UpdatedRemaps(impostor.MaterialRemaps, targets);
+                // The renderers hold the remapped materials, which may be earlier copies rather than sources.
+                ApplyRemaps(contents, targets);
+                ApplyRemaps(contents, Remaps(impostor));
                 PrefabUtility.SaveAsPrefabAsset(contents, path, out bool saved);
                 if (!saved)
                 {
@@ -319,11 +379,6 @@ namespace Impostors.Editor
             finally
             {
                 PrefabUtility.UnloadPrefabContents(contents);
-            }
-
-            if (generated)
-            {
-                MeshLodGeneratorAuthoring.Generate(AssetDatabase.LoadAssetAtPath<GameObject>(path));
             }
         }
 

@@ -88,7 +88,6 @@ namespace Impostors.Editor
             SerializedProperty reduction = serializedObject.FindProperty(nameof(MeshLodGenerator.Reduction));
             EditorGUILayout.PropertyField(reduction, new GUIContent(REDUCTION_LABEL, reduction.tooltip));
             ResizeOverrides(serializedObject.FindProperty(nameof(MeshLodGenerator.Overrides)), count.intValue);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(MeshLodGenerator.MaterialRemaps)), true);
             serializedObject.ApplyModifiedProperties();
         }
 

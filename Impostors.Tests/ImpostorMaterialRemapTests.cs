@@ -116,7 +116,7 @@ namespace Impostors.Tests
         }
 
         [Test]
-        public void RemapGeneratorPrefabStoresRemapsThatSurviveRegeneration()
+        public void RemapIsStoredOnTheImpostorAndSurvivesRegeneration()
         {
             GameObject prefab = CreateGeneratorPrefab(out Material source);
             Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, 0), Is.EqualTo(new[] { source }));
@@ -128,7 +128,7 @@ namespace Impostors.Tests
             Assert.That(AssetDatabase.GetAssetPath(copy), Is.EqualTo(_folder + "/Source_Impostor.mat"));
             Assert.That(copy.shader, Is.EqualTo(ImpostorLit));
             AssertColor(copy.GetColor("_BaseColor"), source.GetColor("_BaseColor"));
-            Assert.That(prefab.GetComponent<MeshLodGenerator>().MaterialRemaps.Single().Target, Is.EqualTo(copy));
+            Assert.That(prefab.GetComponent<Impostor>().MaterialRemaps.Single().Target, Is.EqualTo(copy));
             AssertAllLodsUse(prefab, copy);
             Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, 0), Is.Empty);
 
@@ -145,7 +145,7 @@ namespace Impostors.Tests
             copy.SetFloat("_Smoothness", .9f);
             copy.SetColor("_BaseColor", Color.red);
             AssetDatabase.SaveAssetIfDirty(copy);
-            prefab.GetComponent<MeshLodGenerator>().MaterialRemaps = new MaterialRemap[0];
+            prefab.GetComponent<Impostor>().MaterialRemaps = new MaterialRemap[0];
             PrefabUtility.SavePrefabAsset(prefab);
             MeshLodGeneratorAuthoring.Generate(prefab);
 
@@ -167,8 +167,7 @@ namespace Impostors.Tests
             Material copy = ImpostorMaterialRemap.Remap(prefab, new Dictionary<Material, Shader> { [source] = ImpostorLit })[source];
             var plain = new Material(Shader.Find(URP_LIT));
             AssetDatabase.CreateAsset(plain, _folder + "/Plain.mat");
-            var generator = prefab.GetComponent<MeshLodGenerator>();
-            generator.MaterialRemaps = new[] { new MaterialRemap { Source = source, Target = plain } };
+            prefab.GetComponent<Impostor>().MaterialRemaps = new[] { new MaterialRemap { Source = source, Target = plain } };
             PrefabUtility.SavePrefabAsset(prefab);
             MeshLodGeneratorAuthoring.Generate(prefab);
             Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, 0), Is.EqualTo(new[] { plain }));
@@ -176,7 +175,7 @@ namespace Impostors.Tests
             Material fixedCopy = ImpostorMaterialRemap.Remap(prefab,
                 new Dictionary<Material, Shader> { [plain] = ImpostorLit })[plain];
 
-            MaterialRemap remap = prefab.GetComponent<MeshLodGenerator>().MaterialRemaps.Single();
+            MaterialRemap remap = prefab.GetComponent<Impostor>().MaterialRemaps.Single();
             Assert.That(remap.Source, Is.EqualTo(source));
             Assert.That(remap.Target, Is.EqualTo(fixedCopy));
             Assert.That(fixedCopy, Is.Not.EqualTo(copy));
@@ -206,7 +205,39 @@ namespace Impostors.Tests
             Material copy = ImpostorMaterialRemap.Remap(prefab, new Dictionary<Material, Shader> { [source] = ImpostorLit })[source];
 
             Assert.That(prefab.GetComponentInChildren<MeshRenderer>().sharedMaterial, Is.EqualTo(copy));
+            Assert.That(prefab.GetComponent<Impostor>().MaterialRemaps.Single().Source, Is.EqualTo(source));
             Assert.That(ImpostorMaterialRemap.UncapturableMaterials(prefab, 0), Is.Empty);
+        }
+
+        [Test]
+        public void SyncRemapsRestoresTheSourceOfARemovedRemap()
+        {
+            var source = new Material(Shader.Find(URP_LIT));
+            var copy = new Material(ImpostorLit);
+            var other = new Material(Shader.Find(URP_LIT));
+            var otherCopy = new Material(ImpostorLit);
+            var root = new GameObject("Root");
+            try
+            {
+                var first = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                first.transform.SetParent(root.transform);
+                first.GetComponent<MeshRenderer>().sharedMaterials = new[] { copy, otherCopy };
+                var previous = new Dictionary<Material, Material> { [source] = copy, [other] = otherCopy };
+                var current = new Dictionary<Material, Material> { [other] = otherCopy };
+
+                Assert.That(ImpostorMaterialRemap.SyncRemaps(root, previous, current), Is.True);
+
+                Assert.That(first.GetComponent<MeshRenderer>().sharedMaterials, Is.EqualTo(new[] { source, otherCopy }));
+                Assert.That(ImpostorMaterialRemap.SyncRemaps(root, current, current), Is.False);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(source);
+                Object.DestroyImmediate(copy);
+                Object.DestroyImmediate(other);
+                Object.DestroyImmediate(otherCopy);
+            }
         }
 
         [Test]

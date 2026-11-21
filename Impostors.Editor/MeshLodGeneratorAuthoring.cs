@@ -79,28 +79,7 @@ namespace Impostors.Editor
                 text.Append('|').Append(ratio.ToString("R", CultureInfo.InvariantCulture));
             }
 
-            foreach (KeyValuePair<Material, Material> remap in MaterialRemaps(generator))
-            {
-                text.Append('|').Append(GlobalObjectId.GetGlobalObjectIdSlow(remap.Key))
-                    .Append('>').Append(GlobalObjectId.GetGlobalObjectIdSlow(remap.Value));
-            }
-
             return Hash128.Compute(text.ToString()).ToString();
-        }
-
-        /// <summary>The generator's complete material remaps, keyed by source material. Later entries win.</summary>
-        public static Dictionary<Material, Material> MaterialRemaps(MeshLodGenerator generator)
-        {
-            var remaps = new Dictionary<Material, Material>();
-            foreach (MaterialRemap remap in generator.MaterialRemaps ?? Array.Empty<MaterialRemap>())
-            {
-                if (remap.Source && remap.Target)
-                {
-                    remaps[remap.Source] = remap.Target;
-                }
-            }
-
-            return remaps;
         }
 
         public static float[] TargetRatios(MeshLodGenerator generator)
@@ -344,10 +323,11 @@ namespace Impostors.Editor
 
                 var root = new GameObject(ROOT_NAME);
                 root.transform.SetParent(contents.transform, false);
-                Dictionary<Material, Material> remaps = MaterialRemaps(generator);
                 Renderer[][] lods = levels
-                    .Select((meshes, lod) => BuildLod(generator.SourceModel, renderers, root.transform, lod, meshes, remaps))
+                    .Select((meshes, lod) => BuildLod(generator.SourceModel, renderers, root.transform, lod, meshes))
                     .ToArray();
+                // The Impostor component owns the materials the bake captures; a rebuilt hierarchy starts from the model's.
+                ImpostorMaterialRemap.ApplyRemaps(root, ImpostorMaterialRemap.Remaps(contents.GetComponent<Impostor>()));
                 ConfigureLodGroup(contents, lods, lodTriangles);
                 generator.GeneratedRoot = root;
                 generator.GeneratedFingerprint = Fingerprint(generator);
@@ -365,10 +345,10 @@ namespace Impostors.Editor
 
         /// <summary>
         /// Builds "LOD{lod}" with a copy of each source renderer as a direct child, carrying only its mesh filter and
-        /// renderer, and assigns that LOD's meshes and remapped materials. A single renderer takes the model's name.
+        /// renderer, and assigns that LOD's meshes. A single renderer takes the model's name.
         /// </summary>
         private static Renderer[] BuildLod(GameObject model, MeshRenderer[] sources, Transform parent, int lod,
-            IReadOnlyDictionary<Mesh, Mesh> meshes, IReadOnlyDictionary<Material, Material> remaps)
+            IReadOnlyDictionary<Mesh, Mesh> meshes)
         {
             var lodRoot = new GameObject(LOD_NAME + lod).transform;
             lodRoot.SetParent(parent, false);
@@ -394,9 +374,6 @@ namespace Impostors.Editor
                 kept[i].name = kept.Length == 1 ? model.name : RendererName(sources[i].name);
                 var filter = kept[i].GetComponent<MeshFilter>();
                 filter.sharedMesh = meshes[filter.sharedMesh];
-                kept[i].sharedMaterials = kept[i].sharedMaterials
-                    .Select(material => remaps.TryGetValue(material, out Material target) ? target : material)
-                    .ToArray();
             }
 
             return kept;

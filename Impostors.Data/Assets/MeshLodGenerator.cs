@@ -27,10 +27,6 @@ namespace Impostors.Data
         [Tooltip("Optional per-LOD triangle targets, indexed by LOD. LOD0 always keeps the source meshes.")]
         public MeshLodOverride[] Overrides = Array.Empty<MeshLodOverride>();
 
-        [Tooltip("Materials the generated LODs use in place of the model's. The Impostor component's Remap fills this "
-            + "with capture-ready copies; remove an entry to go back to the model's material.")]
-        public MaterialRemap[] MaterialRemaps = Array.Empty<MaterialRemap>();
-
         [HideInInspector]
         public string GeneratedFingerprint;
 
@@ -40,13 +36,6 @@ namespace Impostors.Data
     }
 
 #if UNITY_EDITOR
-    [Serializable]
-    public struct MaterialRemap
-    {
-        public Material Source;
-        public Material Target;
-    }
-
     [Serializable]
     public struct MeshLodOverride
     {

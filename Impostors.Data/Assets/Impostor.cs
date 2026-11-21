@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace Impostors.Data
@@ -17,6 +18,19 @@ namespace Impostors.Data
         // The settings type belongs to the editor assembly. Keep it out of player builds.
         [Tooltip("An Impostor Bake Settings asset used by the Bake / Rebake button.")]
         public ScriptableObject BakeSettings;
+
+        [Tooltip("Capture-ready materials this prefab's renderers use in place of materials the bake can't capture. "
+            + "Filled by Remap materials; remove an entry to go back to the source material.")]
+        public MaterialRemap[] MaterialRemaps = Array.Empty<MaterialRemap>();
 #endif
     }
+
+#if UNITY_EDITOR
+    [Serializable]
+    public struct MaterialRemap
+    {
+        public Material Source;
+        public Material Target;
+    }
+#endif
 }
