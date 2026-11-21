@@ -16,6 +16,9 @@ APIs, serialized data and bake formats may change in later releases.
   into the source prefab.
   Capture uses a node-enabled Universal Lit graph with a local static `_ImpostorCaptureEnabled` keyword.
   Mesh LOD materials keep their original shaders.
+- **Mesh LOD Generator**, which builds a prefab's mesh LODs and `LODGroup` from one model
+  with Unity's Mesh LOD simplifier. Set the LOD count and the reduction per LOD, with optional per-LOD overrides.
+  **Create > Impostors > Impostor Prefab from Model** sets up a new prefab from a model in one step.
 - Capture-ready `Impostors/ImpostorLit` and `Impostors/ImpostorFoliage` Shader Graphs.
   ImpostorFoliage adds two-sided normals, alpha clipping, wind and sun transmission.
 - ECS-owned BatchRendererGroup rendering through `ImpostorRenderingSystem`, without Entities Graphics.

@@ -152,7 +152,7 @@ namespace Impostors.Editor
             }
         }
 
-        private static string RequireWritableSource(GameObject source)
+        internal static string RequireWritableSource(GameObject source)
         {
             string path = AssetDatabase.GetAssetPath(source);
             if (!source || !PrefabUtility.IsPartOfPrefabAsset(source) || source.transform.parent

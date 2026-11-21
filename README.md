@@ -45,6 +45,8 @@ You can also add this folder as an embedded package or a local package through i
    Its materials must use a capture-ready shader, such as `Impostors/ImpostorLit` or `Impostors/ImpostorFoliage`.
    See [Included shaders](#included-shaders), or prepare your own graph as described in
    [Shader Graph setup](#shader-graph-setup).
+   For a model without mesh LODs, right-click it and choose **Create > Impostors > Impostor Prefab from Model**.
+   See [Mesh LOD generator](#mesh-lod-generator).
 2. Create **Assets > Create > Impostors > Bake Settings**.
 3. Select the prefab's **Impostor** component, or open **Tools > Impostors > Baker**, choose the bake settings and bake.
    All source mesh LODs stay mesh levels. The impostor occupies the final Culled range of the `LODGroup`.
@@ -55,6 +57,36 @@ A bake embeds the definition, texture arrays, proxy mesh, materials and optional
 into the source prefab.
 Rebakes keep the definition identity. A cancelled or failed bake keeps the previous completed bake.
 Changing the source graph, textures or capture settings requires an explicit rebake.
+
+### Mesh LOD generator
+
+**Mesh LOD Generator** builds a prefab's mesh LODs and `LODGroup` from one model with Unity's Mesh LOD simplifier.
+Add it to the prefab root next to **Impostor**, or create both at once:
+right-click a model or prefab and choose **Create > Impostors > Impostor Prefab from Model**.
+The menu creates `<Model> Impostor.prefab` next to the model, reuses or creates `Impostor Bake Settings.asset`
+in that folder, and generates the LODs.
+
+| Setting               | Effect                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| **Source Model**      | Model or prefab whose mesh renderers become LOD0. A model `LODGroup` contributes its LOD0. |
+| **LOD Count**         | Mesh LODs, LOD0 included. The impostor follows the last one.                               |
+| **Reduction per LOD** | Fraction of triangles each LOD removes from the previous one.                              |
+| **Override**          | Sets one LOD's triangle target as a fraction of LOD0.                                      |
+
+Unity generates a fixed chain of simplified levels, so each LOD snaps to the nearest level.
+The inspector shows each LOD's actual triangle count while you drag the sliders.
+A warning icon marks a LOD that matches the previous one.
+
+- LOD0 uses the model's meshes. The other LODs are stored in the prefab, without the vertices they do not use.
+- Generated copies keep only mesh filters and mesh renderers. Skinned meshes and quad topology are not supported.
+- LOD materials are the model's materials. Remap them to a capture-ready shader in the model's **Materials** tab.
+- Regenerating keeps the `LODGroup` transitions when the LOD count is unchanged.
+  Otherwise it keeps LOD0's and the impostor's transitions and spaces the LODs between them.
+- **Auto LOD distances** spaces the transitions so on-screen triangle density stays roughly constant.
+  It needs three or more up-to-date LODs.
+- Changing the settings or reimporting the model marks the LODs outdated. Nothing regenerates until you click
+  **Generate LODs**.
+- Regenerating marks the impostor outdated. The previous bake keeps rendering until you rebake.
 
 ### Included shaders
 

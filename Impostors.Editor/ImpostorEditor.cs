@@ -74,7 +74,7 @@ namespace Impostors.Editor
             DrawSettings(settings, source);
         }
 
-        private static GameObject ResolveSource(Impostor component, PrefabStage stage)
+        internal static GameObject ResolveSource(Component component, PrefabStage stage)
         {
             if (EditorUtility.IsPersistent(component))
             {
