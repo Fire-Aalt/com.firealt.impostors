@@ -736,9 +736,6 @@ namespace Impostors.Samples.Benchmark
             return name;
         }
 
-        public static bool AreAllBoundsInsideFrustum(ImpostorInstanceSet data, Camera camera)
-            => AreAllBoundsInsideFrustum(new ImpostorRenderData(data.ResolveDefinitions(), data.Instances), camera);
-
         public static bool AreAllBoundsInsideFrustum(ImpostorRenderData data, Camera camera)
         {
             Plane[] planes = GeometryUtility.CalculateFrustumPlanes(camera);

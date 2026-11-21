@@ -110,8 +110,8 @@ namespace Impostors.Editor
 
             var definitions = new ImpostorDefinition[2];
             var sourceProxies = new Mesh[2];
-            ImpostorInstanceSet data = null;
-            ImpostorInstanceSet smaller = null;
+            ImpostorRenderData data = null;
+            ImpostorRenderData smaller = null;
             ImpostorWorldRenderer renderer = null;
             RenderTexture target = null;
             Scene scene = EditorSceneManager.NewPreviewScene();
@@ -314,25 +314,12 @@ namespace Impostors.Editor
                         Object.DestroyImmediate(definition);
                     }
                 }
-
-                if (data)
-                {
-                    Object.DestroyImmediate(data);
-                }
-
-                if (smaller)
-                {
-                    Object.DestroyImmediate(smaller);
-                }
             }
         }
 
-        private static ImpostorInstanceSet CreateData(ImpostorDefinition[] definitions, int count)
+        private static ImpostorRenderData CreateData(ImpostorDefinition[] definitions, int count)
         {
-            var data = ScriptableObject.CreateInstance<ImpostorInstanceSet>();
-            data.hideFlags = HideFlags.HideAndDontSave;
-            data.Definitions = definitions;
-            data.Instances = new ImpostorInstance[count];
+            var data = new ImpostorRenderData(definitions, new ImpostorInstance[count]);
             int columns = Mathf.CeilToInt(Mathf.Sqrt(count * 16f / 9));
             int rows = Mathf.CeilToInt(count / (float)columns);
             for (int index = 0; index < count; index++)

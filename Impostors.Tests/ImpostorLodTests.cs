@@ -84,8 +84,6 @@ namespace Impostors.Tests
             // 500-unit fixture rather than the environment's default disabled maps.
             if (light) pipeline.shadowDistance = 1000;
             var owned = new List<Object>();
-            var data = ScriptableObject.CreateInstance<ImpostorInstanceSet>();
-            owned.Add(data);
             var definition = Object.Instantiate(ImpostorTestAssets.Definition(1));
             owned.Add(definition);
             var profile = new ImpostorLodData();
@@ -109,8 +107,7 @@ namespace Impostors.Tests
             };
             Assert.That(profile.TryValidate(out string error), Is.True, error);
             definition.LodData = profile;
-            data.Definitions = new[] { definition };
-            data.Instances = new ImpostorInstance[2049];
+            var data = new ImpostorRenderData(new[] { definition }, new ImpostorInstance[2049]);
             var random = new System.Random(918271);
             for (int i = 0; i < data.Instances.Length; i++)
             {

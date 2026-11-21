@@ -2,7 +2,6 @@ using UnityEngine;
 
 namespace Impostors.Data
 {
-    [CreateAssetMenu(menuName = "Impostors/Impostor Definition")]
     public sealed class ImpostorDefinition : ScriptableObject
     {
         public const int VERSION = 3;

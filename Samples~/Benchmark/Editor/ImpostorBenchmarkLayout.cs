@@ -90,9 +90,6 @@ namespace Impostors.Samples.Benchmark.Editor
             return new Bounds(matrix.MultiplyPoint3x4(local.center), extent * 2);
         }
 
-        public static CameraFit CalculateCameraFit(ImpostorInstanceSet data, float aspect, float culledPercent)
-            => CalculateCameraFit(new ImpostorRenderData(data.ResolveDefinitions(), data.Instances), aspect, culledPercent);
-
         public static CameraFit CalculateCameraFit(ImpostorWorldRenderer renderer, float aspect, float culledPercent)
             => CalculateCameraFit(renderer.CaptureWorldBounds(), aspect, culledPercent);
 

@@ -35,7 +35,7 @@ namespace Impostors.Tests
         public void ConcurrentViewsKeepIndependentFrustumCountsAndPackedIndices()
         {
             var scene = EditorSceneManager.NewPreviewScene();
-            ImpostorInstanceSet data = null;
+            ImpostorRenderData data = null;
             ImpostorWorldRenderer renderer = null;
             var outputs = new NativeArray<BatchCullingOutputDrawCommands>[3];
             var planes = new NativeArray<Plane>[3];
@@ -43,8 +43,7 @@ namespace Impostors.Tests
             var handles = new JobHandle[3];
             try
             {
-                data = ScriptableObject.CreateInstance<ImpostorInstanceSet>();
-                data.Definitions = new ImpostorDefinition[2];
+                data = new ImpostorRenderData(new ImpostorDefinition[2], new ImpostorInstance[8192]);
                 for (int prototype = 0; prototype < data.Definitions.Length; prototype++)
                 {
                     data.Definitions[prototype] = Object.Instantiate(ImpostorTestAssets.Definition(prototype + 1));
@@ -54,7 +53,6 @@ namespace Impostors.Tests
                     // This fixture asserts impostor-only draw membership, independently of authored mesh LODs.
                     data.Definitions[prototype].LodData = null;
                 }
-                data.Instances = new ImpostorInstance[8192];
                 for (int index = 0; index < data.Instances.Length; index++)
                 {
                     data.Instances[index] = new ImpostorInstance
@@ -148,10 +146,9 @@ namespace Impostors.Tests
                         splits[view].Dispose();
                     }
                 }
-                if (data && data.Definitions != null)
+                if (data != null)
                     foreach (var definition in data.Definitions)
                         if (definition) Object.DestroyImmediate(definition);
-                Object.DestroyImmediate(data);
                 EditorSceneManager.ClosePreviewScene(scene);
             }
         }
@@ -173,7 +170,7 @@ namespace Impostors.Tests
             return new Bounds(matrix.MultiplyPoint3x4(bounds.center), extent * 2);
         }
 
-        private static void AssertOutput(BatchCullingOutputDrawCommands output, int expected, ImpostorInstanceSet data, BatchRendererGroup brg)
+        private static void AssertOutput(BatchCullingOutputDrawCommands output, int expected, ImpostorRenderData data, BatchRendererGroup brg)
         {
             Assert.That(output.visibleInstanceCount, Is.EqualTo(expected));
             Assert.That(output.drawCommandCount, Is.InRange(1, data.Definitions.Length * 8));

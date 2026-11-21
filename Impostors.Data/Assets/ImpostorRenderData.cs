@@ -13,10 +13,5 @@ namespace Impostors.Data
 
         public ImpostorDefinition[] Definitions { get; }
         public ImpostorInstance[] Instances { get; }
-
-        public static implicit operator ImpostorRenderData(ImpostorInstanceSet data)
-        {
-            return data ? new ImpostorRenderData(data.ResolveDefinitions(), data.Instances) : null;
-        }
     }
 }
