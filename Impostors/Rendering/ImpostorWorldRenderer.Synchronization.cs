@@ -34,6 +34,12 @@ namespace Impostors
             _entityQuery.CompleteDependency();
             EntityManager entityManager = _entityWorld.EntityManager;
             _changeTracker.Update();
+            if (_appliedTileSize != ImpostorSpatialCell.TileSize)
+            {
+                _appliedTileSize = ImpostorSpatialCell.TileSize;
+                force = true;
+            }
+
             if (!force && !_changeTracker.Changed && _cleanupQuery.IsEmpty)
             {
                 UploadedBytesLastSync = 0;
@@ -179,6 +185,7 @@ namespace Impostors
                 FirstRows = firstRows.AsArray(),
                 TransformType = transformType,
                 EntityType = entityManager.GetEntityTypeHandle(),
+                TileSize = ImpostorSpatialCell.TileSize,
                 Moves = moves,
             }.Schedule(chunks.Length, SYNC_JOB_BATCH);
             new SortCellMovesJob { Moves = moves, Sorted = sorted, Entities = sortedEntities }.Schedule(find).Complete();

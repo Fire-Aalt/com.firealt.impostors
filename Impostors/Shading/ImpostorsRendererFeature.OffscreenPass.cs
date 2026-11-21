@@ -31,7 +31,6 @@ namespace Impostors
             private static readonly int ImpostorDepth = Shader.PropertyToID("_ImpostorDepth");
             private static readonly int ImpostorSize = Shader.PropertyToID("_ImpostorSize");
             private static readonly int ImpostorSharpness = Shader.PropertyToID("_ImpostorSharpness");
-            private static readonly int SceneDepthTest = Shader.PropertyToID("_ImpostorSceneDepthTest");
 
             private float _scale;
             private float _sharpness;

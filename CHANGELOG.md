@@ -12,12 +12,36 @@ and the package uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the camera depth texture, impostor depth and normals are drawn by the feature right after it, and quads hidden
   behind opaque geometry are skipped before reconstruction. Impostors write per-pixel depth, and HLSLcc drops
   `SV_DepthLessEqual` on Vulkan, so hardware early-Z never rejected hidden impostor fragments there.
+- **Impostors Renderer Feature › Spatial Cell Size** replaces the fixed 128 m chunk cells. Changing it regroups
+  every instance at runtime, including entities baked with another size.
+- **Impostors Renderer Feature › Hull Detail** picks the plane set of the hull proxies: Low (about 44 triangles),
+  Medium (84, default) or High (300). Medium measured fastest; High's extra triangles cost more than the few percent
+  of pixels they save.
+- Experimental **Depth Bands**: the impostor depth pass draws half-octave distance buckets near to far, each skipping
+  quads hidden behind the nearer ones. Off (1) by default; each band adds one depth copy.
+- Experimental **Occlusion Culling**: culls instances hidden behind a coarse farthest-depth map of the Game camera,
+  read back asynchronously. Off by default; trees revealed by fast camera motion can appear one to three frames late.
+
+### Changed
+
+- Impostors are drawn as a convex hull fitted to all of the prototype's mesh LOD vertices, with planes concentrated
+  near the horizon, instead of a camera-facing bounding rectangle. On conifers it covers 55% of the rectangle's
+  pixels, which cuts impostor depth, shadow and shading overdraw. When no mesh LOD can be read, the baked 14-DOP is
+  drawn instead.
+- `ImpostorProxy.BuildCameraQuad`, `CAMERA_QUAD_VERTEX_COUNT` and `CAMERA_QUAD_TRIANGLE_COUNT` are removed, and
+  `ConfigureCameraProxy` is renamed `ConfigureProxyVolume`. `ImpostorProxy.BuildPrototypeHull` builds a prototype's
+  drawn proxy. Benchmark reports carry `HullProxy` in place of `CameraFacingProxy`.
+
+- Camera depth buckets span half an octave of distance instead of a full octave, and each bucket is its own draw range.
 
 ### Fixed
 
 - The impostor shader no longer keeps per-view state in local arrays. They compiled to indexable temps, which
   Vulkan drivers placed in scratch memory, making every impostor fragment roughly 15 times more expensive in all passes.
 - **Impostors Offscreen Shade** skips quads hidden behind the scene depth instead of shading every impostor behind walls.
+- Forward impostor shading, native or offscreen, skips quads behind the prepass depth and discards reconstructed
+  surfaces that lie behind it before lighting, so overlapping impostors no longer pay for PBR, self-shadowing and
+  the additional-light loop of every hidden layer.
 
 - **Mesh LOD Generator** no longer copies the source model root's position into the generated LODs.
   A model exported away from its origin, such as an FBX whose object sat off-centre in Blender, placed its LODs

@@ -33,6 +33,9 @@ namespace Impostors
 #endif
 
         public ulong SceneMask = ulong.MaxValue;
+
+        /// <summary>Set by the Impostors Renderer Feature. Read when a renderer registers its prototypes.</summary>
+        public static ImpostorHullDetail HullDetail { get; set; } = ImpostorHullDetail.High;
         public int Layer;
 
         /// <summary>

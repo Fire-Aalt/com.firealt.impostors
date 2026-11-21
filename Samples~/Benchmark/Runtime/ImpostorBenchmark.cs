@@ -92,7 +92,7 @@ namespace Impostors.Samples.Benchmark
             public int PixelsPerCapturedView;
             public int EquivalentAtlasResolution;
             public bool SelfShadowsEnabled;
-            public bool CameraFacingProxy;
+            public bool HullProxy;
         }
 
         [Serializable]
@@ -693,13 +693,15 @@ namespace Impostors.Samples.Benchmark
             };
             report.RenderTargetWidth = Camera.targetTexture ? Camera.targetTexture.width : Screen.width;
             report.RenderTargetHeight = Camera.targetTexture ? Camera.targetTexture.height : Screen.height;
-            report.CameraFacingProxy = true;
+            report.HullProxy = true;
             report.SelfShadowsEnabled = Array.TrueForAll(definitions, definition => definition.HasValidSelfShadowVolume);
             report.CaptureGridAxis = definitions[0].Frames;
             report.PixelsPerCapturedView = definitions[0].Resolution;
             report.EquivalentAtlasResolution = report.CaptureGridAxis * report.PixelsPerCapturedView;
-            report.ProxyVertices = ImpostorProxy.CAMERA_QUAD_VERTEX_COUNT;
-            report.ProxyTriangles = ImpostorProxy.CAMERA_QUAD_TRIANGLE_COUNT;
+            Mesh hull = ImpostorProxy.BuildPrototypeHull(definitions[0], ImpostorWorldRenderer.HullDetail);
+            report.ProxyVertices = hull.vertexCount;
+            report.ProxyTriangles = (int)hull.GetIndexCount(0) / 3;
+            UnityEngine.Object.DestroyImmediate(hull);
             report.Passed = report.FrameP95Ms <= MillisecondsPerSecond / RequiredFramesPerSecond
                 && report.CullingP95Ms < RequiredCullingCpuMs && report.ManagedAllocationMaximum == 0
                 && report.ImpostorGpuBytes < MaximumImpostorGpuBytes && report.Width == BenchmarkWidth

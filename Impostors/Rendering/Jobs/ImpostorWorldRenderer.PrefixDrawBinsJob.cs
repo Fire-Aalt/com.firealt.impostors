@@ -33,6 +33,8 @@ namespace Impostors
             public NativeArray<ImpostorCullingStatistics> Statistics;
             public BatchFilterSettings Filter;
             public int MainThreadGrowths;
+            /// <summary>Emits one draw range per depth bucket so a pass can draw the buckets near to far.</summary>
+            public bool BandedRanges;
             public int ViewType;
 #if UNITY_EDITOR
             public bool Picking;
@@ -89,14 +91,19 @@ namespace Impostors
                     Output->drawCommandCount = commands;
                 }
 
-                Output->drawRanges = commands > 0 ? Allocate<BatchDrawRange>(1) : null;
-                Output->drawRangeCount = commands > 0 ? 1 : 0;
+                int ranges = commands > 0 ? (BandedRanges ? CountBuckets() : 1) : 0;
+                Output->drawRanges = ranges > 0 ? Allocate<BatchDrawRange>(ranges) : null;
+                Output->drawRangeCount = ranges;
 #if UNITY_EDITOR
                 Output->drawCommandPickingEntityIds = Picking && commands > 0 ? Allocate<EntityId>(commands) : null;
 #endif
                 Output->instanceSortingPositions = null;
                 Output->instanceSortingPositionFloatCount = 0;
-                if (commands > 0)
+                if (commands > 0 && BandedRanges)
+                {
+                    WriteBucketRanges(indirect, commands);
+                }
+                else if (commands > 0)
                 {
                     Output->drawRanges[0] = new BatchDrawRange
                     {
@@ -104,6 +111,53 @@ namespace Impostors
                         drawCommandsBegin = 0,
                         drawCommandsCount = (uint)commands,
                         filterSettings = Filter,
+                    };
+                }
+            }
+
+            private int CountBuckets()
+            {
+                int count = 0;
+                for (int i = 0; i < Keys.Length; i++)
+                {
+                    if (i == 0 || Keys[i].Bucket != Keys[i - 1].Bucket)
+                    {
+                        count++;
+                    }
+                }
+
+                return count;
+            }
+
+            /// <summary>Keys are sorted nearest bucket first, so each bucket's commands are contiguous.</summary>
+            private void WriteBucketRanges(bool indirect, int commands)
+            {
+                int range = 0;
+                for (int i = 0; i < Keys.Length; i++)
+                {
+                    if (i > 0 && Keys[i].Bucket == Keys[i - 1].Bucket)
+                    {
+                        continue;
+                    }
+
+                    int bucket = Keys[i].Bucket;
+                    int end = i + 1;
+                    while (end < Keys.Length && Keys[end].Bucket == bucket)
+                    {
+                        end++;
+                    }
+
+                    int begin = Bins[i].CommandOffset;
+                    int last = end < Keys.Length ? Bins[end].CommandOffset : commands;
+                    BatchFilterSettings filter = Filter;
+                    filter.renderingLayerMask = (Filter.renderingLayerMask & ((1u << ImpostorLodSelection.DEPTH_BUCKET_LAYER_SHIFT) - 1))
+                        | ImpostorLodSelection.DepthBucketLayers(bucket, bucket + 1);
+                    Output->drawRanges[range++] = new BatchDrawRange
+                    {
+                        drawCommandsType = indirect ? BatchDrawCommandType.Indirect : BatchDrawCommandType.Direct,
+                        drawCommandsBegin = (uint)begin,
+                        drawCommandsCount = (uint)(last - begin),
+                        filterSettings = filter,
                     };
                 }
             }

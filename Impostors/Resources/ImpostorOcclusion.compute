@@ -1,0 +1,33 @@
+#pragma kernel Farthest
+
+Texture2D<float> _Source;
+RWTexture2D<float> _Target;
+uint2 _SourceSize;
+uint _Tile;
+uint _ReversedZ;
+
+// One texel per tile holds the farthest depth inside it, so anything behind it is hidden at every covered pixel.
+[numthreads(8, 8, 1)]
+void Farthest(uint2 id : SV_DispatchThreadID)
+{
+    uint2 size;
+    _Target.GetDimensions(size.x, size.y);
+    if (any(id >= size))
+    {
+        return;
+    }
+
+    uint2 origin = id * _Tile;
+    uint2 end = min(origin + _Tile, _SourceSize);
+    float farthest = _ReversedZ ? 1.0 : 0.0;
+    for (uint y = origin.y; y < end.y; y++)
+    {
+        for (uint x = origin.x; x < end.x; x++)
+        {
+            float depth = _Source.Load(int3(x, y, 0));
+            farthest = _ReversedZ ? min(farthest, depth) : max(farthest, depth);
+        }
+    }
+
+    _Target[id] = farthest;
+}

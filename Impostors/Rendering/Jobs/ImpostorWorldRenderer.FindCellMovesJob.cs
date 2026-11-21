@@ -19,6 +19,7 @@ namespace Impostors
             [ReadOnly] public NativeArray<int> FirstRows;
             [ReadOnly] public ComponentTypeHandle<LocalToWorld> TransformType;
             [ReadOnly] public EntityTypeHandle EntityType;
+            public float TileSize;
 
             [NativeDisableParallelForRestriction] [WriteOnly] public NativeArray<CellMove> Moves;
 
@@ -28,7 +29,7 @@ namespace Impostors
                 NativeArray<Entity> entities = Chunks[index].GetNativeArray(EntityType);
                 for (int row = 0; row < transforms.Length; row++)
                 {
-                    int2 cell = ImpostorSpatialCell.FromPosition(transforms[row].Value.c3.xyz).Value;
+                    int2 cell = ImpostorSpatialCell.FromPosition(transforms[row].Value.c3.xyz, TileSize).Value;
                     if (!cell.Equals(CurrentCells[index]))
                     {
                         Moves[FirstRows[index] + row] = new CellMove { Cell = cell, Entity = entities[row] };

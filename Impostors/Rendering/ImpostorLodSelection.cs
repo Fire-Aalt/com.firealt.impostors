@@ -11,7 +11,9 @@ namespace Impostors
         private const int MAXIMUM_OPACITY = 127;
         private const int LOCAL_INDEX_MASK = 0x00ffffff;
         private const int FADE_SHIFT = 24;
-        private const int DEPTH_BUCKET_COUNT = 8;
+        public const int DEPTH_BUCKET_COUNT = 8;
+        /// <summary>Camera draw ranges carry their depth bucket as this rendering layer bit plus the bucket index.</summary>
+        public const int DEPTH_BUCKET_LAYER_SHIFT = 24;
 
         public static float CameraFactor(LODParameters parameters, float bias)
         {
@@ -80,11 +82,25 @@ namespace Impostors
             return (localIndex & LOCAL_INDEX_MASK) | ((fade & 255) << FADE_SHIFT);
         }
 
-        /// <summary>Buckets by the float exponent of the squared distance, so each bucket doubles the distance range.</summary>
+        /// <summary>
+        /// Buckets by the float exponent of the squared distance, so each bucket spans half an octave of distance:
+        /// below 32 m, then 45, 64, 90, 128, 181, 256 m and beyond.
+        /// </summary>
         public static int DepthBucket(float distanceSquared)
         {
             int exponent = ((math.asint(distanceSquared) >> 23) & 255) - 127;
-            return math.clamp((exponent >> 1) - 5, 0, DEPTH_BUCKET_COUNT - 1);
+            return math.clamp(exponent - 9, 0, DEPTH_BUCKET_COUNT - 1);
+        }
+
+        public static uint DepthBucketLayers(int firstBucket, int endBucket)
+        {
+            uint bits = 0;
+            for (int bucket = firstBucket; bucket < endBucket; bucket++)
+            {
+                bits |= 1u << (DEPTH_BUCKET_LAYER_SHIFT + bucket);
+            }
+
+            return bits;
         }
 
         public static void DistanceRange(RenderBounds bounds, float3 origin, out float minimumSquared,

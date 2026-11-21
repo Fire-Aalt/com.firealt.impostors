@@ -99,17 +99,20 @@ void SelectViewFrames(float3 direction, out float3 frames, out float3 weights)
  if(f.x>=f.y){frames=float3(a,a+1,a+_Frames+1);weights=float3(1-f.x,f.x-f.y,f.y);}else{frames=float3(a,a+_Frames+1,a+_Frames);weights=float3(1-f.y,f.x,f.y-f.x);}
 }
 
+#if defined(IMPOSTOR_FORWARD_SELF_SHADOW)
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+// Set while the camera depth texture already holds this frame's impostor depth.
+float _ImpostorSceneDepthTest;
+#endif
 #if defined(IMPOSTOR_OFFSCREEN_SHADE)
 // _ScaledScreenParams describes the smaller buffer during this pass.
 float _ImpostorNativeScreenHeight;
-#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
-float _ImpostorSceneDepthTest;
 #define IMPOSTOR_DETAIL_SCREEN_HEIGHT _ImpostorNativeScreenHeight
 #else
 #define IMPOSTOR_DETAIL_SCREEN_HEIGHT _ScaledScreenParams.y
 #endif
 
-#if defined(IMPOSTOR_OFFSCREEN_SHADE) || defined(IMPOSTOR_PREPASS_TEST)
+#if defined(IMPOSTOR_FORWARD_SELF_SHADOW) || defined(IMPOSTOR_PREPASS_TEST)
 // Writing per-pixel depth disables hardware early-Z on compilers that drop SV_DepthLessEqual (HLSLcc on Vulkan),
 // so hidden impostors would pay for full reconstruction. The proxy's rasterized depth is the nearest the surface
 // can be, so a quad is skipped when the farthest scene depth covering it is nearer. Whole quads only, which keeps
@@ -130,6 +133,24 @@ float ImpostorFarthestDepth(float4 depths)
  #else
  return max(max(depths.x,depths.y),max(depths.z,depths.w));
  #endif
+}
+#endif
+#if defined(IMPOSTOR_FORWARD_SELF_SHADOW)
+float ImpostorSceneDepth(float4 positionCS)
+{
+ #if defined(IMPOSTOR_OFFSCREEN_SHADE)
+ // At half scale a buffer pixel centre lands on the corner shared by the 2x2 native texels it covers.
+ return ImpostorFarthestDepth(GATHER_RED_TEXTURE2D_X(_CameraDepthTexture,sampler_PointClamp,
+  UnityStereoTransformScreenSpaceTex(positionCS.xy/_ScaledScreenParams.xy)));
+ #else
+ return LOAD_TEXTURE2D_X(_CameraDepthTexture,uint2(positionCS.xy)).r;
+ #endif
+}
+// The prepass already wrote the visible surface, so a reconstruction behind it never needs lighting.
+bool ImpostorBehindScene(float depth,float sceneDepth)
+{
+ if(unity_OrthoParams.w>.5)return false;
+ return LinearEyeDepth(depth,_ZBufferParams)>LinearEyeDepth(sceneDepth,_ZBufferParams)*1.005+.05;
 }
 #endif
 #if defined(IMPOSTOR_URP_PREPASS)
@@ -169,18 +190,7 @@ float4 LoadViewRectangle(float frame)
 
 Varyings Vert(Attributes v){
  Varyings o=(Varyings)0;UNITY_SETUP_INSTANCE_ID(v);UNITY_TRANSFER_INSTANCE_ID(v,o);UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
- float3 proxyCenter=(_ProxyBoundsMin.xyz+_ProxyBoundsMax.xyz)*.5;
- float3 proxyDirection=unity_OrthoParams.w>.5?normalize(TransformWorldToObjectDir(UNITY_MATRIX_V[2].xyz)):normalize(TransformWorldToObject(_WorldSpaceCameraPos)-proxyCenter);
- #ifdef IMPOSTOR_SHADOW
- #if defined(_CASTING_PUNCTUAL_LIGHT_SHADOW)
- proxyDirection=normalize(TransformWorldToObject(_LightPosition)-proxyCenter);
- #else
- proxyDirection=normalize(TransformWorldToObjectDir(_LightDirection));
- #endif
- #elif defined(IMPOSTOR_DEBUG_CAPTURE)
- proxyDirection=normalize(TransformWorldToObjectDir(_BakeDirectionWS));
- #endif
- v.positionOS=CameraProxyPosition(v.positionOS.xy,proxyDirection);
+ // The proxy is a convex hull drawn as is: its front faces bound the surface from every direction.
  o.positionOS=v.positionOS;o.positionCS=TransformObjectToHClip(v.positionOS);
  #if defined(_IMPOSTOR_COLOR_ADJUSTMENTS)
  float3 hueSeed=frac(TransformObjectToWorld(float3(0,0,0))*.1031);
@@ -374,10 +384,12 @@ void Frag(Varyings v,out float4 color:SV_Target,out float depth:IMPOSTOR_DEPTH){
  #if defined(IMPOSTOR_URP_PREPASS)
  [branch]if(_ImpostorOwnsPrepass>.5){color=0;depth=v.positionCS.z;discard;return;}
  #endif
- #if defined(IMPOSTOR_OFFSCREEN_SHADE)
- // At half scale a buffer pixel centre lands on the corner shared by the 2x2 native texels it covers.
- [branch]if(_ImpostorSceneDepthTest>.5&&ImpostorQuadHidden(ImpostorFarthestDepth(GATHER_RED_TEXTURE2D_X(_CameraDepthTexture,
-  sampler_PointClamp,UnityStereoTransformScreenSpaceTex(v.positionCS.xy/_ScaledScreenParams.xy))),v.positionCS)){color=0;depth=v.positionCS.z;discard;return;}
+ #if defined(IMPOSTOR_FORWARD_SELF_SHADOW)
+ float sceneDepth=0;
+ [branch]if(_ImpostorSceneDepthTest>.5){
+  sceneDepth=ImpostorSceneDepth(v.positionCS);
+  if(ImpostorQuadHidden(sceneDepth,v.positionCS)){color=0;depth=v.positionCS.z;discard;return;}
+ }
  #endif
  #if defined(IMPOSTOR_PREPASS_TEST)
  [branch]if(ImpostorQuadHidden(LOAD_TEXTURE2D_X(_ImpostorOpaqueDepth,uint2(v.positionCS.xy)).r,v.positionCS)){color=0;depth=v.positionCS.z;discard;return;}
@@ -429,6 +441,7 @@ void Frag(Varyings v,out float4 color:SV_Target,out float depth:IMPOSTOR_DEPTH){
  color=float4(0,0,0,outputCoverage);return;
  #else
 
+ [branch]if(_ImpostorSceneDepthTest>.5&&ImpostorBehindScene(depth,sceneDepth)){color=0;discard;return;}
  InputData data=(InputData)0;
  data.positionWS=ws;data.positionCS=cs;data.normalWS=normal;
  data.viewDirectionWS=GetWorldSpaceNormalizeViewDir(ws);

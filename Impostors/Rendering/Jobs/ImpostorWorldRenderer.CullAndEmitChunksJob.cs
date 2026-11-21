@@ -52,6 +52,12 @@ namespace Impostors
             public bool CullByShadowDistance;
             public float ShadowDistanceSquared;
             public int SplitCount;
+            [ReadOnly] public NativeArray<float> OcclusionDepth;
+            public float4x4 OcclusionViewProjection;
+            public int2 OcclusionSize;
+            public bool Occlusion;
+            public bool OcclusionReversedZ;
+            public bool OcclusionFlipY;
 #if UNITY_EDITOR
             public PickingFilter Picking;
 #endif
@@ -80,7 +86,7 @@ namespace Impostors
                 }
 
                 ClassifySplits(chunk.Bounds, out ushort possible, out ushort inside);
-                if (possible == 0)
+                if (possible == 0 || Occluded(chunk.Bounds))
                 {
                     worker.RejectedChunks++;
                     return;
@@ -101,7 +107,7 @@ namespace Impostors
                 ImpostorPrototypeData prototype = ecsChunk.GetSharedComponent(PrototypeType).Data.Value;
                 SelectChunkLodRange(chunk, prototype, out LodSelection near, out LodSelection far);
                 bool uniformLod = near.Level == far.Level && !near.Crossfading && !far.Crossfading;
-                bool fullChunk = uniformLod && fullyInside;
+                bool fullChunk = uniformLod && fullyInside && !Occlusion;
 #if UNITY_EDITOR
                 fullChunk &= !Picking.Enabled;
 #endif
@@ -130,6 +136,71 @@ namespace Impostors
                     HasUniformLod = uniformLod,
                 };
                 CullRows(ref worker, rows, count, partitionIndex);
+            }
+
+            /// <summary>
+            /// True when the bounds lie behind the farthest depth of every coarse texel they cover in the occlusion
+            /// camera's last depth. Bounds crossing the near plane or covering many texels are kept.
+            /// </summary>
+            private bool Occluded(RenderBounds bounds)
+            {
+                if (!Occlusion)
+                {
+                    return false;
+                }
+
+                float2 minimum = float.MaxValue;
+                float2 maximum = float.MinValue;
+                float nearest = OcclusionReversedZ ? 0 : 1;
+                for (int corner = 0; corner < 8; corner++)
+                {
+                    float3 sign = new float3((corner & 1) == 0 ? -1 : 1, (corner & 2) == 0 ? -1 : 1, (corner & 4) == 0 ? -1 : 1);
+                    float4 clip = math.mul(OcclusionViewProjection, new float4(bounds.Center + bounds.Extents * sign, 1));
+                    if (clip.w <= 0.01f)
+                    {
+                        return false;
+                    }
+
+                    float3 ndc = clip.xyz / clip.w;
+                    minimum = math.min(minimum, ndc.xy);
+                    maximum = math.max(maximum, ndc.xy);
+                    nearest = OcclusionReversedZ ? math.max(nearest, ndc.z) : math.min(nearest, ndc.z);
+                }
+
+                if (OcclusionFlipY)
+                {
+                    float top = -minimum.y;
+                    minimum.y = -maximum.y;
+                    maximum.y = top;
+                }
+
+                int2 low = math.max((int2)math.floor((minimum * 0.5f + 0.5f) * OcclusionSize), 0);
+                int2 high = math.min((int2)math.floor((maximum * 0.5f + 0.5f) * OcclusionSize), OcclusionSize - 1);
+                if (math.any(high < low))
+                {
+                    return false;
+                }
+
+                int2 extent = high - low + 1;
+                if (extent.x * extent.y > 256)
+                {
+                    return false;
+                }
+
+                for (int y = low.y; y <= high.y; y++)
+                {
+                    for (int x = low.x; x <= high.x; x++)
+                    {
+                        float farthest = OcclusionDepth[y * OcclusionSize.x + x];
+                        bool behind = OcclusionReversedZ ? nearest < farthest : nearest > farthest;
+                        if (!behind)
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                return true;
             }
 
             private void SelectChunkLodRange(RenderChunk chunk, ImpostorPrototypeData prototype, out LodSelection near,
@@ -170,7 +241,7 @@ namespace Impostors
                     }
 
                     ushort instanceSplits = ClassifyRowSplits(rows.Bounds[bit], rows.Possible, rows.Inside);
-                    if (instanceSplits == 0)
+                    if (instanceSplits == 0 || Occluded(rows.Bounds[bit]))
                     {
                         continue;
                     }

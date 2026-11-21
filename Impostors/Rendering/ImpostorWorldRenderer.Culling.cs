@@ -289,8 +289,18 @@ namespace Impostors
             CullingViewScratch scratch = job.Scratch;
             EntityManager entityManager = _entityWorld.EntityManager;
             bool validCamera = float.IsFinite(context.lodParameters.cameraPosition.sqrMagnitude);
+            bool occlusion = context.viewType == BatchCullingViewType.Camera && validCamera
+                && ImpostorOcclusion.TryGet(context.lodParameters.cameraPosition, out _, out _, out _);
+            ImpostorOcclusion.TryGet(context.lodParameters.cameraPosition, out NativeArray<float> occlusionDepth,
+                out int2 occlusionSize, out float4x4 occlusionMatrix);
             return new CullAndEmitChunksJob
             {
+                OcclusionDepth = occlusionDepth,
+                OcclusionSize = occlusionSize,
+                OcclusionViewProjection = occlusionMatrix,
+                Occlusion = occlusion,
+                OcclusionReversedZ = SystemInfo.usesReversedZBuffer,
+                OcclusionFlipY = ImpostorOcclusion.FlipY,
                 Chunks = job.Chunks,
                 BoundsType = entityManager.GetComponentTypeHandle<RenderBounds>(true),
                 MetricsType = entityManager.GetComponentTypeHandle<ImpostorLodMetrics>(true),
@@ -332,6 +342,7 @@ namespace Impostors
                 Target = job.Target,
                 WorkItems = scratch.WorkItems,
                 MainThreadGrowths = scratch.Growths,
+                BandedRanges = job.Context.viewType == BatchCullingViewType.Camera,
                 ViewType = (int)job.Context.viewType,
 #if UNITY_EDITOR
                 // Outline views use Unity's batched selection-mask path. Supplying

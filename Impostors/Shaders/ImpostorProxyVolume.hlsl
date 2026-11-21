@@ -1,8 +1,8 @@
 #ifndef IMPOSTOR_PROXY_VOLUME
 #define IMPOSTOR_PROXY_VOLUME
 
-// The source 14-DOP is seven pairs of parallel planes. Keep its volume while
-// rasterizing only a camera-facing quad, avoiding tiny proxy-face triangles.
+// The baked 14-DOP is seven pairs of parallel planes. View rays are clipped to it, so a looser drawn
+// proxy never reconstructs a surface outside the captured volume.
 float4 ProxyDiagonals(float3 value)
 {
     return float4(value.x + value.y + value.z, value.x + value.y - value.z,
@@ -44,14 +44,4 @@ float2 IntersectProxyVolume(float3 origin, float3 direction)
     return float2(entry, exit);
 }
 
-float3 CameraProxyPosition(float2 corner, float3 direction)
-{
-    float3 right, up;
-    FrameBasis(direction, right, up);
-    float3 extent = (_ProxyBoundsMax.xyz - _ProxyBoundsMin.xyz) * 0.5;
-    float3 center = (_ProxyBoundsMax.xyz + _ProxyBoundsMin.xyz) * 0.5;
-    return center + direction * dot(abs(direction), extent)
-        + right * (corner.x * dot(abs(right), extent))
-        + up * (corner.y * dot(abs(up), extent));
-}
 #endif

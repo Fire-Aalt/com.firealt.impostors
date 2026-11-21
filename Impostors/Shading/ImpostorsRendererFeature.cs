@@ -1,3 +1,4 @@
+using Impostors.Data;
 using Unity.Scripting.LifecycleManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -41,6 +42,26 @@ namespace Impostors
             + "graphics API loses conservative depth (e.g. Vulkan).")]
         public bool OccludedDepthRejection = true;
 
+        [Tooltip("Edge length in meters of the square X/Z cells that group impostor instances into chunks. Chunks are "
+            + "culled and depth sorted as a whole, so smaller cells cull and order more tightly at the cost of more chunks "
+            + "and draw commands. Shared by every impostor renderer; changing it regroups all instances.")]
+        [Min(ImpostorSpatialCell.MINIMUM_TILE_SIZE)]
+        public float SpatialCellSize = ImpostorSpatialCell.DEFAULT_TILE_SIZE;
+
+        [Tooltip("Splits the impostor depth pass into this many distance bands drawn near to far. Each band skips quads "
+            + "hidden behind the nearer bands, at the cost of one depth copy per band. 1 draws all impostors at once.")]
+        [Range(1, 8)]
+        public int DepthBands = 1;
+
+        [Tooltip("Experimental. Culls instances hidden behind the previous frames' depth of the Game camera. Saves every "
+            + "camera pass for hidden trees, but a tree revealed by fast camera motion can appear one to three frames late.")]
+        public bool OcclusionCulling;
+
+        [Tooltip("Plane count of the convex hull each impostor is drawn as. Low is about 44 triangles, Medium 84 and High "
+            + "300 for a conifer; each step down covers a few percent more empty pixels. Applies to renderers created "
+            + "afterwards, for example on entering Play Mode.")]
+        public ImpostorHullDetail HullDetail = ImpostorHullDetail.Medium;
+
         [SerializeField]
         [HideInInspector]
         private Shader _compositeShader;
@@ -50,9 +71,13 @@ namespace Impostors
         private OffscreenPass _offscreenPass;
         private PrepassHandoffPass _handoffPass;
         private DepthPass _depthPass;
+        private SceneDepthResetPass _resetPass;
+        private ComputeShader _occlusionShader;
 
         public override void Create()
         {
+            ApplyGlobalSettings();
+            _occlusionShader = Resources.Load<ComputeShader>("ImpostorOcclusion");
             _noAdditionalLights = GlobalKeyword.Create(NO_ADDITIONAL_LIGHTS_KEYWORD);
             if (!_compositeShader)
             {
@@ -61,6 +86,7 @@ namespace Impostors
 
             _handoffPass = new PrepassHandoffPass { renderPassEvent = RenderPassEvent.BeforeRenderingPrePasses };
             _depthPass = new DepthPass { renderPassEvent = RenderPassEvent.AfterRenderingPrePasses };
+            _resetPass = new SceneDepthResetPass { renderPassEvent = RenderPassEvent.AfterRenderingOpaques };
             _offscreenPass = new OffscreenPass
             {
                 renderPassEvent = RenderPassEvent.AfterRenderingOpaques,
@@ -78,6 +104,14 @@ namespace Impostors
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
+            ApplyGlobalSettings();
+            bool occlusion = OcclusionCulling && _occlusionShader && SystemInfo.supportsAsyncGPUReadback;
+            if (ImpostorOcclusion.Enabled && !occlusion)
+            {
+                ImpostorOcclusion.Invalidate();
+            }
+
+            ImpostorOcclusion.Enabled = occlusion;
             LightData lights = renderingData.lightData;
             Light main = lights.mainLightIndex >= 0 ? lights.visibleLights[lights.mainLightIndex].light : null;
             // URP enables its Forward+ loop for a sun-only camera too. Select a
@@ -101,18 +135,27 @@ namespace Impostors
 
             if (ownDepth)
             {
-                _depthPass.Setup(_handoffPass, _composite);
+                _depthPass.Setup(_handoffPass, _composite, DepthBands, OcclusionCulling ? _occlusionShader : null);
                 renderer.EnqueuePass(_handoffPass);
                 renderer.EnqueuePass(_depthPass);
             }
 
-            if (!offscreen)
+            if (offscreen)
             {
-                return;
+                _offscreenPass.Setup(RenderScale, Sharpness, Msaa, _composite);
+                renderer.EnqueuePass(_offscreenPass);
             }
 
-            _offscreenPass.Setup(RenderScale, Sharpness, Msaa, _composite);
-            renderer.EnqueuePass(_offscreenPass);
+            if (ownDepth)
+            {
+                renderer.EnqueuePass(_resetPass);
+            }
+        }
+
+        private void ApplyGlobalSettings()
+        {
+            ImpostorWorldRenderer.HullDetail = HullDetail;
+            ImpostorSpatialCell.TileSize = Mathf.Max(ImpostorSpatialCell.MINIMUM_TILE_SIZE, SpatialCellSize);
         }
 
         /// <summary>Returns the shadow distance of the camera now being culled, or the pipeline's when it is unknown.</summary>

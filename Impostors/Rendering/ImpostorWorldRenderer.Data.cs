@@ -204,7 +204,7 @@ namespace Impostors
             List<RenderLod> lods)
         {
             Material impostorMaterial = CreateImpostorMaterial(definition);
-            Mesh proxy = ImpostorProxy.BuildCameraQuad(definition.Proxy.bounds);
+            Mesh proxy = ImpostorProxy.BuildPrototypeHull(definition, HullDetail);
             proxy.name = definition.name + RUNTIME_PROXY_SUFFIX;
             proxy.hideFlags = HideFlags.HideAndDontSave;
             _meshes.Add(proxy);
@@ -346,7 +346,7 @@ namespace Impostors
                 material.DisableKeyword(ImpostorShaderKeywords.SELF_SHADOW_VOLUME);
             }
 
-            ImpostorProxy.ConfigureCameraProxy(material, definition.Proxy);
+            ImpostorProxy.ConfigureProxyVolume(material, definition.Proxy);
         }
 
         /// <summary>Orders placements by spatial tile, then by position, so instantiated chunks stay spatially compact.</summary>
@@ -371,7 +371,7 @@ namespace Impostors
 
         private static Vector2Int Tile(Vector3 position)
         {
-            const float SIZE = ImpostorSpatialCell.TILE_SIZE;
+            float SIZE = ImpostorSpatialCell.TileSize;
             return new Vector2Int(Mathf.FloorToInt(position.x / SIZE), Mathf.FloorToInt(position.z / SIZE));
         }
 

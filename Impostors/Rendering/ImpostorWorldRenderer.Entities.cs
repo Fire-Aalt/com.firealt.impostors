@@ -33,6 +33,7 @@ namespace Impostors
         private EntityQuery _pendingQuery;
         private EntityQuery _bakedInstances;
         private ImpostorChangeTracker _changeTracker;
+        private float _appliedTileSize = ImpostorSpatialCell.DEFAULT_TILE_SIZE;
         private int _ownedChunkCount;
 
         /// <summary>Changes whenever a rebake refreshes adopted prototypes, so earlier adoption failures are retried.</summary>

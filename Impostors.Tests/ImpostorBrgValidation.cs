@@ -70,7 +70,7 @@ namespace Impostors.Editor
         public sealed class Report
         {
             public int Placements;
-            public bool CameraFacingProxy;
+            public bool HullProxy;
             public int SubmittedInstances;
             public int SubmittedCommands;
             public int NativeForwardDrawCalls;
@@ -118,7 +118,7 @@ namespace Impostors.Editor
             var report = new Report
             {
                 Placements = placementCount,
-                CameraFacingProxy = true
+                HullProxy = true
             };
             try
             {

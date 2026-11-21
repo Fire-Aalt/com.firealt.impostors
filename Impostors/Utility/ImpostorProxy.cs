@@ -5,29 +5,49 @@ using UnityEngine;
 
 namespace Impostors
 {
-    /// <summary>Builds the camera-facing quad and the 14-DOP hull that bound an impostor's reconstructed surface.</summary>
+    /// <summary>Builds the convex hulls that bound an impostor's reconstructed surface: the drawn proxy and the baked 14-DOP.</summary>
     public static class ImpostorProxy
     {
-        public const int CAMERA_QUAD_VERTEX_COUNT = 4;
-        public const int CAMERA_QUAD_TRIANGLE_COUNT = 2;
         private const int DIRECTION_COUNT = 14;
         private const int AXIS_DIRECTION_COUNT = 6;
         private const float PARALLEL_EPSILON = 0.00001f;
         private const float OUTSIDE_EPSILON = 0.0001f;
         private const float DUPLICATE_EPSILON_SQUARED = 0.000001f;
         private const float FACE_EPSILON = 0.0002f;
-        private const string CAMERA_QUAD_NAME = "Impostor camera quad";
         private const string DOP_NAME = "Impostor 14-DOP";
+        private const string HULL_NAME = "Impostor hull";
+        private static readonly float[] HULL_LOW = { -30, 12 };
+        private static readonly float[] HULL_MEDIUM = { -30, 10, 25 };
+        private static readonly float[] HULL_HIGH = { -60, -30, 0, 6, 12, 20, 32, 50, 70 };
 
-        public static Mesh BuildCameraQuad(Bounds bounds)
+        /// <summary>
+        /// Builds the drawn proxy of a prototype: a hull of every mesh LOD vertex, padded like the bake, so the captured
+        /// surface always lies inside it. Falls back to a copy of the baked 14-DOP when no mesh LOD can be read.
+        /// </summary>
+        public static Mesh BuildPrototypeHull(ImpostorDefinition definition, ImpostorHullDetail detail)
         {
-            return new Mesh
+            var points = new List<Vector3>();
+            if (definition.LodData is { MeshLevels: not null })
             {
-                name = CAMERA_QUAD_NAME,
-                vertices = new[] { new Vector3(-1, -1, 0), new Vector3(1, -1, 0), new Vector3(1, 1, 0), new Vector3(-1, 1, 0) },
-                triangles = new[] { 0, 2, 1, 0, 3, 2 },
-                bounds = bounds,
-            };
+                foreach (ImpostorMeshLod level in definition.LodData.MeshLevels)
+                {
+                    foreach (ImpostorLodPart part in level.Parts)
+                    {
+                        if (part.Mesh && (part.Mesh.isReadable || Application.isEditor))
+                        {
+                            points.AddRange(part.Mesh.vertices);
+                        }
+                    }
+                }
+            }
+
+            if (points.Count < 4)
+            {
+                return Object.Instantiate(definition.Proxy);
+            }
+
+            HullPlanes(detail, out float[] elevations, out int azimuths);
+            return BuildHull(points.ToArray(), definition.Radius * 2 / Mathf.Max(definition.Resolution, 1), elevations, azimuths);
         }
 
         /// <summary>Projects a point onto the four diagonal axes of the 14-DOP.</summary>
@@ -37,7 +57,8 @@ namespace Impostors
                 -value.x + value.y + value.z);
         }
 
-        public static void ConfigureCameraProxy(Material material, Mesh source)
+        /// <summary>Gives the shader the axis and diagonal slabs of <paramref name="source"/>, which clip view rays.</summary>
+        public static void ConfigureProxyVolume(Material material, Mesh source)
         {
             var minimum = Vector4.one * float.PositiveInfinity;
             var maximum = Vector4.one * float.NegativeInfinity;
@@ -52,6 +73,57 @@ namespace Impostors
             material.SetVector(ImpostorShaderProperties.ProxyBoundsMax, source.bounds.max);
             material.SetVector(ImpostorShaderProperties.ProxyDiagonalMin, minimum);
             material.SetVector(ImpostorShaderProperties.ProxyDiagonalMax, maximum);
+        }
+
+        /// <summary>
+        /// Builds a convex hull of <paramref name="points"/> from axis planes plus rings of slanted planes, which follow
+        /// tapered shapes such as conifers far more tightly than the 14-DOP's bounding box silhouette.
+        /// </summary>
+        public static Mesh BuildHull(Vector3[] points, float padding, float[] elevations, int azimuths)
+        {
+            var directions = new List<Vector3>(Directions().Take(AXIS_DIRECTION_COUNT));
+            for (int ring = 0; ring < elevations.Length; ring++)
+            {
+                float elevation = elevations[ring];
+                for (int i = 0; i < azimuths; i++)
+                {
+                    // Stagger neighbouring rings. The horizontal ring stays off the axis planes it would duplicate.
+                    bool staggered = elevation == 0 || ring % 2 == 1;
+                    float azimuth = (i + (staggered ? .5f : 0)) * 360f / azimuths;
+                    directions.Add(Quaternion.Euler(-elevation, azimuth, 0) * Vector3.forward);
+                }
+            }
+
+            Vector3[] normals = directions.ToArray();
+            float[] supports = normals.Select(d => points.Max(p => Vector3.Dot(d, p)) + padding).ToArray();
+            List<Vector3> vertices = FindVertices(normals, supports);
+            List<int> triangles = Triangulate(normals, supports, vertices);
+            var mesh = new Mesh { name = HULL_NAME };
+            mesh.SetVertices(vertices);
+            mesh.SetTriangles(triangles, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        /// <summary>Elevation rings and azimuth count for each hull detail level, densest near the horizon.</summary>
+        public static void HullPlanes(ImpostorHullDetail detail, out float[] elevations, out int azimuths)
+        {
+            switch (detail)
+            {
+                case ImpostorHullDetail.Low:
+                    elevations = HULL_LOW;
+                    azimuths = 4;
+                    break;
+                case ImpostorHullDetail.Medium:
+                    elevations = HULL_MEDIUM;
+                    azimuths = 6;
+                    break;
+                default:
+                    elevations = HULL_HIGH;
+                    azimuths = 8;
+                    break;
+            }
         }
 
         /// <summary>Returns the six axis and eight diagonal face normals of a 14-DOP.</summary>
@@ -92,11 +164,12 @@ namespace Impostors
         private static List<Vector3> FindVertices(Vector3[] directions, float[] supports)
         {
             var vertices = new List<Vector3>();
-            for (int a = 0; a < DIRECTION_COUNT; a++)
+            int count = directions.Length;
+            for (int a = 0; a < count; a++)
             {
-                for (int b = a + 1; b < DIRECTION_COUNT; b++)
+                for (int b = a + 1; b < count; b++)
                 {
-                    for (int c = b + 1; c < DIRECTION_COUNT; c++)
+                    for (int c = b + 1; c < count; c++)
                     {
                         if (TryIntersect(directions, supports, a, b, c, out Vector3 point)
                             && IsInside(directions, supports, point) && !ContainsPoint(vertices, point))
