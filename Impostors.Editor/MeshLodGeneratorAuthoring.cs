@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using Impostors.Data;
 using UnityEditor;
 using UnityEngine;
@@ -17,8 +18,8 @@ namespace Impostors.Editor
         public const float DEFAULT_FIRST_TRANSITION = .6f;
         public const float DEFAULT_IMPOSTOR_TRANSITION = .1f;
 
-        private const string FORMAT_VERSION = "Mesh LOD generator v1|";
-        private const string ROOT_NAME = "Generated LODs";
+        private const string FORMAT_VERSION = "Mesh LOD generator v2|";
+        private const string ROOT_NAME = "LODs";
         private const string LOD_NAME = "LOD";
         private const string MESH_NAME = "{0} LOD{1}";
         private const string PREFAB_NAME = "{0}/{1} Impostor.prefab";
@@ -32,6 +33,10 @@ namespace Impostors.Editor
             "Mesh LODs need static MeshRenderers with a mesh and one material per submesh. Unsupported renderer: ";
         private const string UNSUPPORTED_TOPOLOGY = "Mesh LODs need triangle topology. Disable Keep Quads on mesh: ";
         private const string SAVE_FAILED = "Could not save the generated mesh LODs into the prefab.";
+        private const string ASSETS_ROOT = "Assets/";
+
+        // "Tree_LOD0" and "Tree LOD0" name a level of the source model, which every generated level would repeat.
+        private static readonly Regex LOD_SUFFIX = new(@"[_ ]?LOD\d+$", RegexOptions.IgnoreCase);
 
         /// <summary>Renderers of <paramref name="model"/> that become LOD0: its LODGroup's LOD0, or all of them.</summary>
         public static MeshRenderer[] SourceRenderers(GameObject model)
@@ -99,7 +104,7 @@ namespace Impostors.Editor
             MeshRenderer[] renderers = SourceRenderers(generator.SourceModel);
             Mesh[] meshes = renderers.Select(SharedMesh).Distinct().ToArray();
             float[] ratios = TargetRatios(generator);
-            Dictionary<string, Mesh> previous = GeneratedMeshes(generator.GeneratedRoot, path);
+            Dictionary<string, Mesh> previous = EmbeddedMeshes(path);
             List<Dictionary<Mesh, Mesh>> levels = BuildLevelMeshes(meshes, ratios, out int[] lodTriangles);
             var added = new List<Mesh>();
             try
@@ -113,7 +118,35 @@ namespace Impostors.Editor
                 throw;
             }
 
-            RemoveUnused(previous.Values, AssetDatabase.LoadAssetAtPath<GameObject>(path));
+            RemoveUnusedMeshes(path);
+        }
+
+        /// <summary>
+        /// Deletes the generated meshes embedded in a generator prefab that neither its hierarchy nor its impostor bake
+        /// uses, such as the levels of a deleted LOD hierarchy. Meshes the current bake references stay until the next
+        /// bake prunes them. Returns the number of meshes removed.
+        /// </summary>
+        public static int RemoveUnusedMeshes(string path)
+        {
+            var source = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (!source || !source.TryGetComponent(out MeshLodGenerator _)
+                || !path.StartsWith(ASSETS_ROOT, StringComparison.Ordinal))
+            {
+                return 0;
+            }
+
+            HashSet<Object> referenced = ImpostorPrefabArtifacts.ReferencedSubAssets(path);
+            Mesh[] unused = AssetDatabase.LoadAllAssetsAtPath(path).OfType<Mesh>()
+                .Where(mesh => !referenced.Contains(mesh))
+                .ToArray();
+            if (unused.Length == 0)
+            {
+                return 0;
+            }
+
+            Array.ForEach(unused, RemoveMesh);
+            AssetDatabase.SaveAssetIfDirty(source);
+            return unused.Length;
         }
 
         /// <summary>Creates "{Model} Impostor.prefab" next to <paramref name="model"/> and generates its LODs.</summary>
@@ -219,17 +252,15 @@ namespace Impostors.Editor
             return levels;
         }
 
-        /// <summary>Generated meshes the current hierarchy uses, keyed by name.</summary>
-        private static Dictionary<string, Mesh> GeneratedMeshes(GameObject root, string path)
+        /// <summary>
+        /// Meshes embedded in the prefab, keyed by name. Only the generator embeds meshes, so these are earlier levels,
+        /// including ones a deleted hierarchy left behind. A name used twice prefers the mesh something still uses.
+        /// </summary>
+        private static Dictionary<string, Mesh> EmbeddedMeshes(string path)
         {
-            if (!root)
-            {
-                return new Dictionary<string, Mesh>();
-            }
-
-            return root.GetComponentsInChildren<MeshFilter>(true)
-                .Select(filter => filter.sharedMesh)
-                .Where(mesh => mesh && AssetDatabase.GetAssetPath(mesh) == path)
+            HashSet<Object> referenced = ImpostorPrefabArtifacts.ReferencedSubAssets(path);
+            return AssetDatabase.LoadAllAssetsAtPath(path).OfType<Mesh>()
+                .OrderBy(mesh => !referenced.Contains(mesh))
                 .GroupBy(mesh => mesh.name)
                 .ToDictionary(group => group.Key, group => group.First());
         }
@@ -293,7 +324,7 @@ namespace Impostors.Editor
                 var root = new GameObject(ROOT_NAME);
                 root.transform.SetParent(contents.transform, false);
                 Renderer[][] lods = levels
-                    .Select((meshes, lod) => BuildLodCopy(generator.SourceModel, renderers, root.transform, lod, meshes))
+                    .Select((meshes, lod) => BuildLod(generator.SourceModel, renderers, root.transform, lod, meshes))
                     .ToArray();
                 ConfigureLodGroup(contents, lods, lodTriangles);
                 generator.GeneratedRoot = root;
@@ -310,47 +341,64 @@ namespace Impostors.Editor
             }
         }
 
-        /// <summary>Copies the model under "LOD{lod}", keeping only the source renderers, and assigns that LOD's meshes.</summary>
-        private static Renderer[] BuildLodCopy(GameObject model, MeshRenderer[] sources, Transform parent, int lod,
+        /// <summary>
+        /// Builds "LOD{lod}" with a copy of each source renderer as a direct child, carrying only its mesh filter and
+        /// renderer, and assigns that LOD's meshes. A single renderer takes the model's name.
+        /// </summary>
+        private static Renderer[] BuildLod(GameObject model, MeshRenderer[] sources, Transform parent, int lod,
             IReadOnlyDictionary<Mesh, Mesh> meshes)
         {
-            var lodRoot = new GameObject(LOD_NAME + lod);
-            lodRoot.transform.SetParent(parent, false);
-            GameObject copy = Object.Instantiate(model, lodRoot.transform, false);
-            copy.name = model.name;
+            var lodRoot = new GameObject(LOD_NAME + lod).transform;
+            lodRoot.SetParent(parent, false);
+            GameObject copy = Object.Instantiate(model, lodRoot, false);
             Renderer[] modelRenderers = model.GetComponentsInChildren<Renderer>(true);
             Renderer[] copyRenderers = copy.GetComponentsInChildren<Renderer>(true);
             // Instantiate preserves hierarchy order, so a model renderer's index finds its copy.
             Renderer[] kept = sources.Select(source => copyRenderers[Array.IndexOf(modelRenderers, source)]).ToArray();
-            StripToRenderers(copy.transform, new HashSet<Renderer>(kept));
+            // Reparenting in world space flattens the model's nodes and keeps every renderer where the model placed it.
             foreach (Renderer renderer in kept)
             {
-                var filter = renderer.GetComponent<MeshFilter>();
+                renderer.transform.SetParent(lodRoot, true);
+            }
+
+            if (!kept.Any(renderer => renderer.gameObject == copy))
+            {
+                Object.DestroyImmediate(copy);
+            }
+
+            for (int i = 0; i < kept.Length; i++)
+            {
+                StripToRenderer(kept[i].gameObject);
+                kept[i].name = kept.Length == 1 ? model.name : RendererName(sources[i].name);
+                var filter = kept[i].GetComponent<MeshFilter>();
                 filter.sharedMesh = meshes[filter.sharedMesh];
             }
 
             return kept;
         }
 
-        /// <summary>Removes every component except the kept renderers and their filters, then any empty branches.</summary>
-        private static void StripToRenderers(Transform root, HashSet<Renderer> kept)
+        private static string RendererName(string source)
         {
-            // Children come first, so a branch is empty by the time its parent is visited.
-            foreach (Transform transform in root.GetComponentsInChildren<Transform>(true).Reverse())
-            {
-                GameObjectUtility.RemoveMonoBehavioursWithMissingScript(transform.gameObject);
-                bool keep = transform.TryGetComponent(out Renderer renderer) && kept.Contains(renderer);
-                foreach (Component component in transform.GetComponents<Component>().Reverse())
-                {
-                    if (component is not Transform && !(keep && component is MeshFilter or MeshRenderer))
-                    {
-                        Object.DestroyImmediate(component);
-                    }
-                }
+            string name = LOD_SUFFIX.Replace(source, string.Empty);
+            return name.Length > 0 ? name : source;
+        }
 
-                if (transform != root && transform.childCount == 0 && !keep)
+        /// <summary>Removes the children and every component except the mesh filter and renderer.</summary>
+        private static void StripToRenderer(GameObject gameObject)
+        {
+            // Every kept renderer is a sibling by now, so any remaining child holds nothing the LOD uses.
+            for (int i = gameObject.transform.childCount - 1; i >= 0; i--)
+            {
+                Object.DestroyImmediate(gameObject.transform.GetChild(i).gameObject);
+            }
+
+            GameObjectUtility.RemoveMonoBehavioursWithMissingScript(gameObject);
+            // Reverse order removes dependents before the components they require.
+            foreach (Component component in gameObject.GetComponents<Component>().Reverse())
+            {
+                if (component is not (Transform or MeshFilter or MeshRenderer))
                 {
-                    Object.DestroyImmediate(transform.gameObject);
+                    Object.DestroyImmediate(component);
                 }
             }
         }
@@ -392,26 +440,6 @@ namespace Impostors.Editor
 
             float[] ratios = lodTriangles.Select(triangles => (float)triangles / lodTriangles[0]).ToArray();
             return MeshLodGeneration.AutoTransitions(first, impostor, ratios, out _);
-        }
-
-        /// <summary>
-        /// Deletes meshes the regenerated hierarchy no longer uses. Meshes the current impostor bake still references stay
-        /// until the next bake prunes them.
-        /// </summary>
-        private static void RemoveUnused(IEnumerable<Mesh> leftovers, GameObject source)
-        {
-            ImpostorDefinition definition = source.TryGetComponent(out Impostor impostor) ? impostor.Definition : null;
-            var baked = new HashSet<Mesh>(definition && definition.LodData != null
-                ? definition.LodData.MeshLevels.SelectMany(level => level.Parts).Select(part => part.Mesh)
-                : Enumerable.Empty<Mesh>());
-            Mesh[] unused = leftovers.Where(mesh => !baked.Contains(mesh)).ToArray();
-            if (unused.Length == 0)
-            {
-                return;
-            }
-
-            Array.ForEach(unused, RemoveMesh);
-            AssetDatabase.SaveAssetIfDirty(source);
         }
 
         private static void RemoveMesh(Mesh mesh)

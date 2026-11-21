@@ -179,6 +179,25 @@ namespace Impostors.Editor
             return obsolete.Length;
         }
 
+        /// <summary>
+        /// Embedded objects of the prefab at <paramref name="path"/> that its hierarchy or another embedded object
+        /// (such as the impostor definition's LOD data) references. Bake bookkeeping does not count as a reference.
+        /// </summary>
+        public static HashSet<Object> ReferencedSubAssets(string path)
+        {
+            var result = new HashSet<Object>();
+            VisitReferences(AssetDatabase.LoadMainAssetAtPath(path), path, result);
+            foreach (Object value in AssetDatabase.LoadAllAssetsAtPath(path))
+            {
+                if (value is not Texture and not Mesh)
+                {
+                    VisitReferences(value, path, result);
+                }
+            }
+
+            return result;
+        }
+
         private static bool IsReferencingAsset(string path, string oldPath)
         {
             bool serializedAsset = path.EndsWith(SCENE_EXTENSION) || path.EndsWith(PREFAB_EXTENSION)

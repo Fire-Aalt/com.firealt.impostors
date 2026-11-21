@@ -125,6 +125,75 @@ namespace Impostors.Tests
         }
 
         [Test]
+        public void GenerateFlattensEachLevelToRenderersNamedAfterTheModel()
+        {
+            GameObject prefab = CreateGeneratorPrefab(out _);
+
+            MeshLodGeneratorAuthoring.Generate(prefab);
+
+            Transform root = prefab.GetComponent<MeshLodGenerator>().GeneratedRoot.transform;
+            Assert.That(root.name, Is.EqualTo("LODs"));
+            Renderer[][] lods = prefab.GetComponent<LODGroup>().GetLODs().Select(lod => lod.renderers).ToArray();
+            for (int i = 0; i < lods.Length; i++)
+            {
+                Transform level = root.GetChild(i);
+                Transform renderer = level.Cast<Transform>().Single();
+                Assert.That(level.name, Is.EqualTo("LOD" + i));
+                Assert.That(renderer.name, Is.EqualTo("Model"));
+                Assert.That(renderer.localPosition, Is.EqualTo(Vector3.up));
+                Assert.That(lods[i].Single().transform, Is.EqualTo(renderer));
+            }
+        }
+
+        [Test]
+        public void DeletedLodHierarchyMeshesAreRemovedAndNotDuplicatedOnRegenerate()
+        {
+            GameObject prefab = CreateGeneratorPrefab(out _);
+            string path = AssetDatabase.GetAssetPath(prefab);
+            MeshLodGeneratorAuthoring.Generate(prefab);
+            Mesh[] generated = GeneratedLodMeshes(prefab);
+            GameObject contents = PrefabUtility.LoadPrefabContents(path);
+            try
+            {
+                Object.DestroyImmediate(contents.GetComponent<MeshLodGenerator>().GeneratedRoot);
+                PrefabUtility.SaveAsPrefabAsset(contents, path);
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(contents);
+            }
+
+            Assert.That(MeshLodGeneratorAuthoring.RemoveUnusedMeshes(path), Is.EqualTo(generated.Length));
+            Assert.That(EmbeddedMeshes(path), Is.Empty);
+
+            MeshLodGeneratorAuthoring.Generate(prefab);
+            Assert.That(EmbeddedMeshes(path).Length, Is.EqualTo(generated.Length));
+        }
+
+        [Test]
+        public void RegenerateReusesMeshesLeftByADeletedHierarchy()
+        {
+            GameObject prefab = CreateGeneratorPrefab(out _);
+            string path = AssetDatabase.GetAssetPath(prefab);
+            MeshLodGeneratorAuthoring.Generate(prefab);
+            Mesh[] first = GeneratedLodMeshes(prefab);
+            GameObject contents = PrefabUtility.LoadPrefabContents(path);
+            try
+            {
+                Object.DestroyImmediate(contents.GetComponent<MeshLodGenerator>().GeneratedRoot);
+                PrefabUtility.SaveAsPrefabAsset(contents, path);
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(contents);
+            }
+
+            MeshLodGeneratorAuthoring.Generate(prefab);
+            Assert.That(GeneratedLodMeshes(prefab), Is.EqualTo(first));
+            Assert.That(EmbeddedMeshes(path), Is.EquivalentTo(first));
+        }
+
+        [Test]
         public void RegenerateKeepsMeshIdentityAndRemovesUnusedLevels()
         {
             GameObject prefab = CreateGeneratorPrefab(out _);
@@ -261,6 +330,11 @@ namespace Impostors.Tests
             return prefab.GetComponent<LODGroup>().GetLODs().Skip(1)
                 .Select(lod => lod.renderers.Single().GetComponent<MeshFilter>().sharedMesh)
                 .ToArray();
+        }
+
+        private static Mesh[] EmbeddedMeshes(string path)
+        {
+            return AssetDatabase.LoadAllAssetsAtPath(path).OfType<Mesh>().ToArray();
         }
 
         private static void SetLodCount(GameObject prefab, int count)
