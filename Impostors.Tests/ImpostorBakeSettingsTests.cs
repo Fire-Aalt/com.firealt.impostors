@@ -23,6 +23,39 @@ namespace Impostors.Tests
             }
         }
 
+        [TestCase(false)]
+        [TestCase(true)]
+        public void DisableImpostorAdditionalLightsSelectsTheNoAdditionalLightsVariant(bool disable)
+        {
+            var settings = ScriptableObject.CreateInstance<ImpostorBakeSettings>();
+            Material material = null;
+            try
+            {
+                settings.DisableImpostorAdditionalLights = disable;
+                Assert.That((settings.OptimizationFlags & ImpostorOptimizationFlags.DisableImpostorAdditionalLights) != 0,
+                    Is.EqualTo(disable));
+
+                material = ImpostorBaker.CreateRuntimeMaterial(ImpostorTestAssets.Definition(),
+                    !settings.DisableImpostorAdditionalLights);
+                Assert.That(material.GetFloat(ImpostorShaderProperties.AdditionalLights), Is.EqualTo(disable ? 0 : 1));
+                Assert.That(material.IsKeywordEnabled(ImpostorShaderKeywords.NO_ADDITIONAL_LIGHTS), Is.EqualTo(disable));
+
+                // Runtime copies re-derive keywords from properties, so the choice must survive that.
+                var copy = new Material(material);
+                ImpostorMaterialControls.ApplyKeywords(copy);
+                Assert.That(copy.IsKeywordEnabled(ImpostorShaderKeywords.NO_ADDITIONAL_LIGHTS), Is.EqualTo(disable));
+                Object.DestroyImmediate(copy);
+            }
+            finally
+            {
+                Object.DestroyImmediate(settings);
+                if (material)
+                {
+                    Object.DestroyImmediate(material);
+                }
+            }
+        }
+
         [Test]
         public void NewSettingsCaptureTheLastLodWithEveryOptimization()
         {
@@ -32,6 +65,7 @@ namespace Impostors.Tests
                 Assert.That(settings.SourceLod, Is.EqualTo(ImpostorSourceLod.LastLod));
                 Assert.That(settings.OptimizationFlags, Is.EqualTo(ImpostorBakeSettings.DEFAULT_OPTIMIZATIONS));
                 Assert.That(settings.HalfResolutionSurface && settings.CompactDepth && settings.DiscardAdjustmentData, Is.True);
+                Assert.That(settings.DisableImpostorAdditionalLights, Is.False);
 
                 settings.CompactDepth = false;
                 Assert.That(settings.OptimizationFlags, Is.EqualTo(ImpostorOptimizationFlags.HalfResolutionSurface

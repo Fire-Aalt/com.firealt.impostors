@@ -16,7 +16,6 @@ namespace Impostors
     {
         private const float NATIVE_SCALE = .999f;
         private const string COMPOSITE_SHADER_NAME = "Hidden/Impostors/OffscreenComposite";
-        private const string NO_ADDITIONAL_LIGHTS_KEYWORD = "_IMPOSTOR_NO_ADDITIONAL_LIGHTS";
         private static readonly int ShadowStrength = Shader.PropertyToID("_ImpostorMainLightShadowStrength");
 
         private static Camera _cullingCamera;
@@ -84,7 +83,7 @@ namespace Impostors
         {
             ApplyGlobalSettings();
             _occlusionShader = Resources.Load<ComputeShader>("ImpostorOcclusion");
-            _noAdditionalLights = GlobalKeyword.Create(NO_ADDITIONAL_LIGHTS_KEYWORD);
+            _noAdditionalLights = GlobalKeyword.Create(ImpostorShaderKeywords.NO_ADDITIONAL_LIGHTS);
             if (!_compositeShader)
             {
                 _compositeShader = Shader.Find(COMPOSITE_SHADER_NAME);

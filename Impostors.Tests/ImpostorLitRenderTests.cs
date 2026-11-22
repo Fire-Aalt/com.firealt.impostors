@@ -99,6 +99,15 @@ namespace Impostors.Tests
                     Assert.That(Difference(on, await Draw(1)), Is.LessThan(.00001), mode + " must ignore baked-shadow response and bias too.");
                     definition.Material.SetFloat(ImpostorShaderProperties.SelfShadowPower, 1);
                     definition.Material.SetFloat(ImpostorShaderProperties.SelfShadowNormalBias, 0);
+                    if (mode is "directional" or "point")
+                    {
+                        definition.Material.SetFloat(ImpostorShaderProperties.AdditionalLights, 0);
+                        ImpostorMaterialControls.ApplyKeywords(definition.Material);
+                        Assert.That(Mean(await Draw(0)), Is.LessThan(.00001), mode + " must vanish when the material skips additional lights.");
+                        definition.Material.SetFloat(ImpostorShaderProperties.AdditionalLights, 1);
+                        ImpostorMaterialControls.ApplyKeywords(definition.Material);
+                        Assert.That(Difference(await Draw(0), off), Is.LessThan(.00001), mode + " must return once additional lights are re-enabled.");
+                    }
                     if (mode == "ambient")
                     {
                         var previousSurface = definition.Material.GetTexture(ImpostorShaderProperties.SurfaceArray);

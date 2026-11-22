@@ -36,6 +36,7 @@ Shader "Impostors/Hemi Octahedral" {
  [HideInInspector] _ImpostorLiveShadows("Casts realtime shadows",Float)=0
  [HideInInspector] _ImpostorStencilRef("Stencil reference",Float)=0
  [HideInInspector] _ImpostorStencilWriteMask("Stencil write mask",Float)=0
+ [HideInInspector] _ImpostorAdditionalLights("Additional lights",Float)=1
  _DetailFullPixels("Full detail above (px)",Range(0,1024))=160
  _DetailReducedPixels("Lowest detail below (px)",Range(0,1024))=64
  [HideInInspector] _SelfShadowVolume("Prefiltered self visibility",3D)="white"{}

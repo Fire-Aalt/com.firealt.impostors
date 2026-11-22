@@ -53,7 +53,7 @@ namespace Impostors.Editor
             _cancellationRequested = true;
         }
 
-        public static Material CreateRuntimeMaterial(ImpostorDefinition definition)
+        public static Material CreateRuntimeMaterial(ImpostorDefinition definition, bool additionalLights = true)
         {
             var material = new Material(ImpostorPackageAssets.Load<Shader>(RUNTIME_SHADER))
             {
@@ -77,6 +77,7 @@ namespace Impostors.Editor
             material.SetVector(ImpostorShaderProperties.BoundsMin, definition.Bounds.min);
             material.SetVector(ImpostorShaderProperties.BoundsMax, definition.Bounds.max);
             material.SetFloat(ImpostorShaderProperties.Cutoff, definition.Cutoff);
+            material.SetFloat(ImpostorShaderProperties.AdditionalLights, additionalLights ? 1 : 0);
             ImpostorMaterialControls.ApplyKeywords(material);
             if (definition.HasValidSelfShadowVolume)
             {
@@ -240,7 +241,7 @@ namespace Impostors.Editor
             definition.Emission = textures.Emission;
             definition.FrameRectangles = textures.FrameRectangles;
             definition.DepthFilterVersion = DEPTH_FILTER_VERSION;
-            definition.Material = CreateRuntimeMaterial(definition);
+            definition.Material = CreateRuntimeMaterial(definition, !settings.DisableImpostorAdditionalLights);
             // The material now holds the constant, so the shader never reads this array.
             if (definition.Material.GetFloat(ImpostorShaderProperties.HasUniformReflectance) > .5f)
             {

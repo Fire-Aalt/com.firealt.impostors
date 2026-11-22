@@ -15,7 +15,7 @@ namespace Impostors.Editor
         LastLod = 1,
     }
 
-    /// <summary>Memory savings applied to the baked texture arrays.</summary>
+    /// <summary>Memory and shading savings applied to the bake.</summary>
     [Flags]
     public enum ImpostorOptimizationFlags
     {
@@ -29,6 +29,9 @@ namespace Impostors.Editor
 
         /// <summary>Drop the geometric normal and metalness that Normal Strength and Metallic Influence need.</summary>
         DiscardAdjustmentData = 1 << 2,
+
+        /// <summary>Shade impostors with the main light only, skipping point and spot lights.</summary>
+        DisableImpostorAdditionalLights = 1 << 3,
     }
 
     [CreateAssetMenu(menuName = MENU_NAME)]
@@ -77,7 +80,8 @@ namespace Impostors.Editor
             + "that array's memory.\nCompact Depth: depth at half resolution in BC4 instead of full-resolution R16, a "
             + "sixteenth of that array's memory; parallax is less precise on very large close-up impostors.\nDiscard "
             + "Adjustment Data: drop the geometric normal and metalness that Normal Strength and Metallic Influence "
-            + "need, saving a full array while both stay at 1.")]
+            + "need, saving a full array while both stay at 1.\nDisable Impostor Additional Lights: impostors ignore point "
+            + "and spot lights and skip their per-pixel light loop. Mesh LODs stay lit by them.")]
         public ImpostorOptimizationFlags OptimizationFlags = DEFAULT_OPTIMIZATIONS;
 
         // Settings saved before Optimization Flags stored three toggles. A missing toggle keeps ABSENT.
@@ -106,6 +110,12 @@ namespace Impostors.Editor
         {
             get => Has(ImpostorOptimizationFlags.DiscardAdjustmentData);
             set => Set(ImpostorOptimizationFlags.DiscardAdjustmentData, value);
+        }
+
+        public bool DisableImpostorAdditionalLights
+        {
+            get => Has(ImpostorOptimizationFlags.DisableImpostorAdditionalLights);
+            set => Set(ImpostorOptimizationFlags.DisableImpostorAdditionalLights, value);
         }
 
         /// <summary>The level of <paramref name="group"/> that <see cref="SourceLod"/> selects.</summary>

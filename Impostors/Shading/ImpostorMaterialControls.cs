@@ -24,6 +24,8 @@ namespace Impostors
             SetKeyword(material, ImpostorShaderKeywords.REFLECTANCE_ADJUSTMENTS, HasReflectanceAdjustments(material));
             SetKeyword(material, ImpostorShaderKeywords.SUBSURFACE,
                 material.HasFloat(ImpostorShaderProperties.SubsurfaceScattering) && !IsToggleOff(material, ImpostorShaderProperties.SubsurfaceScattering));
+            SetKeyword(material, ImpostorShaderKeywords.NO_ADDITIONAL_LIGHTS,
+                IsToggleOff(material, ImpostorShaderProperties.AdditionalLights));
         }
 
         private static bool IsToggleOff(Material material, int property)
