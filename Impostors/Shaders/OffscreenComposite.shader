@@ -1,22 +1,14 @@
 Shader "Hidden/Impostors/OffscreenComposite"
 {
+    Properties
+    {
+        [HideInInspector] _ImpostorStencilRef("Stencil reference", Float) = 0
+    }
     SubShader
     {
         Tags { "RenderPipeline" = "UniversalPipeline" }
-        Pass
-        {
-            Name "Composite"
-            ZTest LEqual
-            ZWrite On
-            Cull Off
-            ColorMask RGB
-            AlphaToMask On
-
-            HLSLPROGRAM
+        HLSLINCLUDE
             #pragma target 4.5
-            #pragma vertex Vert
-            #pragma fragment Frag
-            #pragma multi_compile_local _ _IMPOSTOR_BUFFER_MSAA
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
 
@@ -35,7 +27,8 @@ Shader "Hidden/Impostors/OffscreenComposite"
 
             // Texels further than this behind the nearest one belong to another tree and must not bleed into it.
             // Grows with distance, where neighbouring texels are usually separate trees that should still blend.
-            #define IMPOSTOR_COMPOSITE_DEPTH_TOLERANCE (2.0 + nearestEye * .04)
+            #define IMPOSTOR_COMPOSITE_DEPTH_TOLERANCE_AT(eye) (2.0 + (eye) * .04)
+            #define IMPOSTOR_COMPOSITE_DEPTH_TOLERANCE IMPOSTOR_COMPOSITE_DEPTH_TOLERANCE_AT(nearestEye)
 
             static const int2 Offsets[4] = { int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1) };
 
@@ -133,6 +126,22 @@ Shader "Hidden/Impostors/OffscreenComposite"
                 return (lobe * (north + south + west + east) + color) / (4 * lobe + 1);
             }
 
+        ENDHLSL
+
+        Pass
+        {
+            Name "Composite"
+            ZTest LEqual
+            ZWrite On
+            Cull Off
+            ColorMask RGB
+            AlphaToMask On
+
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment Frag
+            #pragma multi_compile_local _ _IMPOSTOR_BUFFER_MSAA
+
             float4 Frag(Varyings input, out float depth : SV_Depth) : SV_Target
             {
                 float2 position = input.texcoord * _ImpostorSize.xy - .5;
@@ -197,15 +206,114 @@ Shader "Hidden/Impostors/OffscreenComposite"
             Cull Off
 
             HLSLPROGRAM
-            #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment FragCopy
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-            #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
 
             float FragCopy(Varyings input) : SV_Target
             {
                 return LOAD_TEXTURE2D_X(_BlitTexture, uint2(input.positionCS.xy)).r;
+            }
+            ENDHLSL
+        }
+        Pass
+        {
+            // Under depth priming the depth attachment already holds native impostor depth, and the stencil bit marks
+            // where a steady impostor is the visible surface. Colour is upsampled guided by that native depth.
+            Name "CompositePrimed"
+            ZTest Always
+            ZWrite Off
+            Cull Off
+            ColorMask RGB
+            Stencil
+            {
+                Ref [_ImpostorStencilRef]
+                ReadMask [_ImpostorStencilRef]
+                Comp Equal
+            }
+
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment FragPrimed
+            #pragma multi_compile_local _ _IMPOSTOR_BUFFER_MSAA
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+
+            // The buffer resolves MSAA over a cleared target, so a partly covered texel holds its colour times coverage.
+            // The stencil already defines the silhouette here, so take the surface colour itself.
+            float3 SurfaceColor(int2 texel, float covered)
+            {
+                return _ImpostorColor.Load(int3(texel, 0)).rgb / max(covered, 1.0 / IMPOSTOR_BUFFER_SAMPLES);
+            }
+
+            // A pixel the stencil marks must always get a colour: the skybox will not fill it behind impostor depth.
+            float3 NearestCovered(int2 base, int2 limit, float nativeEye, int from, int to, out bool found)
+            {
+                float3 color = 0;
+                float best = 1e20;
+                found = false;
+                for (int y = from; y <= to; y++)
+                {
+                    for (int x = from; x <= to; x++)
+                    {
+                        int2 texel = clamp(base + int2(x, y), int2(0, 0), limit);
+                        float covered;
+                        float sampleDepth = NearestSample(texel, covered);
+                        float difference = abs(EyeDepth(sampleDepth) - nativeEye);
+                        if (IsCovered(sampleDepth) && difference < best)
+                        {
+                            best = difference;
+                            color = SurfaceColor(texel, covered);
+                            found = true;
+                        }
+                    }
+                }
+
+                return color;
+            }
+
+            float4 FragPrimed(Varyings input) : SV_Target
+            {
+                float nativeEye = EyeDepth(LoadSceneDepth(uint2(input.positionCS.xy)));
+                float2 position = input.texcoord * _ImpostorSize.xy - .5;
+                float2 base = floor(position);
+                float2 f = position - base;
+                float weights[4] = { (1 - f.x) * (1 - f.y), f.x * (1 - f.y), (1 - f.x) * f.y, f.x * f.y };
+                int2 limit = (int2)_ImpostorSize.xy - 1;
+                float3 color = 0;
+                float total = 0;
+                for (int i = 0; i < 4; i++)
+                {
+                    int2 texel = clamp((int2)base + Offsets[i], int2(0, 0), limit);
+                    float covered;
+                    float sampleDepth = NearestSample(texel, covered);
+                    // Only texels of the surface the native depth holds, so a neighbouring tree never bleeds in.
+                    if (IsCovered(sampleDepth) && abs(EyeDepth(sampleDepth) - nativeEye) <= IMPOSTOR_COMPOSITE_DEPTH_TOLERANCE_AT(nativeEye))
+                    {
+                        color += SurfaceColor(texel, covered) * weights[i];
+                        total += weights[i];
+                    }
+                }
+
+                if (total > 0)
+                {
+                    color /= total;
+                }
+                else
+                {
+                    // Thin native silhouettes the smaller buffer missed borrow the closest covered texel nearby.
+                    bool found;
+                    color = NearestCovered((int2)base, limit, nativeEye, 0, 1, found);
+                    if (!found)
+                    {
+                        color = NearestCovered((int2)base, limit, nativeEye, -1, 2, found);
+                    }
+                }
+
+                if (_ImpostorSharpness > 0 && total > 0)
+                {
+                    color = Sharpen(color, (int2)floor(position + .5), limit, nativeEye);
+                }
+
+                return float4(color, 1);
             }
             ENDHLSL
         }

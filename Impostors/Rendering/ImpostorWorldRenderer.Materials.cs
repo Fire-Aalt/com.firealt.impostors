@@ -7,6 +7,7 @@ namespace Impostors
     public sealed unsafe partial class ImpostorWorldRenderer
     {
         private static bool _offscreenShading;
+        private static int _primedStencilBit;
 
         private readonly List<MaterialBinding> _materialBindings = new();
 
@@ -48,6 +49,26 @@ namespace Impostors
             }
 
             _offscreenShading = enabled;
+            ApplyForwardPassStates();
+        }
+
+        /// <summary>
+        /// Makes impostor depth passes mark the pixels where a steady impostor is the visible surface, so the offscreen
+        /// composite can replace exactly those under depth priming. 0 writes no stencil.
+        /// </summary>
+        internal static void SetPrimedStencilBit(int bit)
+        {
+            if (_primedStencilBit == bit)
+            {
+                return;
+            }
+
+            _primedStencilBit = bit;
+            ApplyForwardPassStates();
+        }
+
+        private static void ApplyForwardPassStates()
+        {
             foreach (ImpostorWorldRenderer renderer in LiveRenderers)
             {
                 foreach (MaterialBinding binding in renderer._materialBindings)
@@ -158,6 +179,9 @@ namespace Impostors
             {
                 Target.SetShaderPassEnabled(ImpostorShaderPasses.FORWARD_LIGHT_MODE, NativeFade || !_offscreenShading);
                 Target.SetShaderPassEnabled(ImpostorShaderPasses.OFFSCREEN_LIGHT_MODE, !NativeFade);
+                // Fading impostors clear the bit, so a nearer crossfading tree is never covered by the composite.
+                Target.SetFloat(ImpostorShaderProperties.StencilRef, NativeFade ? 0 : _primedStencilBit);
+                Target.SetFloat(ImpostorShaderProperties.StencilWriteMask, _primedStencilBit);
             }
         }
     }

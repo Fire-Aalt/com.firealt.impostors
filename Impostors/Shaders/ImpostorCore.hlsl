@@ -103,6 +103,11 @@ void SelectViewFrames(float3 direction, out float3 frames, out float3 weights)
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
 // Set while the camera depth texture already holds this frame's impostor depth.
 float _ImpostorSceneDepthTest;
+#if !defined(IMPOSTOR_OFFSCREEN_SHADE)
+#define IMPOSTOR_PRIMED_FORWARD
+// Set while URP primes depth: its opaque pass then tests Equal against the prepass and writes no depth.
+float _ImpostorDepthPrimed;
+#endif
 #endif
 #if defined(IMPOSTOR_OFFSCREEN_SHADE)
 // _ScaledScreenParams describes the smaller buffer during this pass.
@@ -151,6 +156,17 @@ bool ImpostorBehindScene(float depth,float sceneDepth)
 {
  if(unity_OrthoParams.w>.5)return false;
  return LinearEyeDepth(depth,_ZBufferParams)>LinearEyeDepth(sceneDepth,_ZBufferParams)*1.005+.05;
+}
+#endif
+#if defined(IMPOSTOR_PRIMED_FORWARD)
+// The stored depth was reconstructed by another shader variant, so it can differ in its last bits. A match within
+// this tolerance is the visible surface; writing the stored value back then passes the Equal test exactly.
+#define IMPOSTOR_PRIMED_DEPTH_TOLERANCE 1e-4
+bool ImpostorMatchesScene(float depth,float sceneDepth)
+{
+ if(unity_OrthoParams.w>.5)return abs(depth-sceneDepth)<=IMPOSTOR_PRIMED_DEPTH_TOLERANCE;
+ float sceneEye=LinearEyeDepth(sceneDepth,_ZBufferParams);
+ return abs(LinearEyeDepth(depth,_ZBufferParams)-sceneEye)<=sceneEye*IMPOSTOR_PRIMED_DEPTH_TOLERANCE;
 }
 #endif
 #if defined(IMPOSTOR_URP_PREPASS)
@@ -386,7 +402,12 @@ void Frag(Varyings v,out float4 color:SV_Target,out float depth:IMPOSTOR_DEPTH){
  #endif
  #if defined(IMPOSTOR_FORWARD_SELF_SHADOW)
  float sceneDepth=0;
- [branch]if(_ImpostorSceneDepthTest>.5){
+ #if defined(IMPOSTOR_PRIMED_FORWARD)
+ bool primed=_ImpostorDepthPrimed>.5;
+ #else
+ bool primed=false;
+ #endif
+ [branch]if(_ImpostorSceneDepthTest>.5||primed){
   sceneDepth=ImpostorSceneDepth(v.positionCS);
   if(ImpostorQuadHidden(sceneDepth,v.positionCS)){color=0;depth=v.positionCS.z;discard;return;}
  }
@@ -441,6 +462,13 @@ void Frag(Varyings v,out float4 color:SV_Target,out float depth:IMPOSTOR_DEPTH){
  color=float4(0,0,0,outputCoverage);return;
  #else
 
+ #if defined(IMPOSTOR_PRIMED_FORWARD)
+ [branch]if(primed){
+  if(!ImpostorMatchesScene(depth,sceneDepth)){color=0;discard;return;}
+  depth=sceneDepth;
+ }
+ else
+ #endif
  [branch]if(_ImpostorSceneDepthTest>.5&&ImpostorBehindScene(depth,sceneDepth)){color=0;discard;return;}
  InputData data=(InputData)0;
  data.positionWS=ws;data.positionCS=cs;data.normalWS=normal;

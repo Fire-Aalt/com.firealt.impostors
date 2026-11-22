@@ -23,6 +23,9 @@ namespace Impostors
             // Matches the composite shader's Texture2DMS sample count.
             private const int MSAA_SAMPLES = 4;
 
+            private const int COMPOSITE_SHADER_PASS = 0;
+            private const int PRIMED_COMPOSITE_SHADER_PASS = 2;
+
             private static readonly ShaderTagId ShaderTag = new(ImpostorShaderPasses.OFFSCREEN_LIGHT_MODE);
             private static readonly int ScaledScreenParams = Shader.PropertyToID("_ScaledScreenParams");
             private static readonly int NativeScreenHeight = Shader.PropertyToID("_ImpostorNativeScreenHeight");
@@ -32,13 +35,18 @@ namespace Impostors
             private static readonly int ImpostorSize = Shader.PropertyToID("_ImpostorSize");
             private static readonly int ImpostorSharpness = Shader.PropertyToID("_ImpostorSharpness");
 
+            private PrepassHandoffPass _handoff;
             private float _scale;
             private float _sharpness;
             private bool _msaa;
+            private int _stencilBit;
             private Material _composite;
 
-            public void Setup(float scale, float sharpness, bool msaa, Material composite)
+            public void Setup(PrepassHandoffPass handoff, float scale, float sharpness, bool msaa, Material composite,
+                int stencilBit)
             {
+                _handoff = handoff;
+                _stencilBit = stencilBit;
                 _scale = scale;
                 _sharpness = sharpness;
                 _msaa = msaa;
@@ -50,6 +58,11 @@ namespace Impostors
 
             public override void RecordRenderGraph(RenderGraph graph, ContextContainer frameData)
             {
+                if (!_handoff.OffscreenActive)
+                {
+                    return;
+                }
+
                 var resources = frameData.Get<UniversalResourceData>();
                 var camera = frameData.Get<UniversalCameraData>();
                 var rendering = frameData.Get<UniversalRenderingData>();
@@ -64,7 +77,7 @@ namespace Impostors
                 var filtering = new FilteringSettings(RenderQueueRange.opaque);
                 var parameters = new RendererListParams(rendering.cullResults, drawing, filtering);
                 AddShadePass(graph, parameters, native, width, height, color, depth, resources.cameraDepthTexture.IsValid());
-                AddCompositePass(graph, resources, width, height, color, depth);
+                AddCompositePass(graph, resources, width, height, color, depth, _handoff.PrimedComposite);
             }
 
             private void CreateTargets(RenderGraph graph, RenderTextureDescriptor native, int width, int height,
@@ -118,7 +131,7 @@ namespace Impostors
             }
 
             private void AddCompositePass(RenderGraph graph, UniversalResourceData resources, int width, int height,
-                TextureHandle color, TextureHandle depth)
+                TextureHandle color, TextureHandle depth, bool primed)
             {
                 using IRasterRenderGraphBuilder builder = graph.AddRasterRenderPass(COMPOSITE_PASS_NAME, out CompositeData data);
                 data.Color = color;
@@ -126,10 +139,22 @@ namespace Impostors
                 data.Size = new Vector4(width, height, 0, 0);
                 data.Sharpness = _sharpness;
                 data.Material = _composite;
+                data.ShaderPass = primed ? PRIMED_COMPOSITE_SHADER_PASS : COMPOSITE_SHADER_PASS;
+                data.StencilRef = primed ? _stencilBit : 0;
                 builder.UseTexture(color);
                 builder.UseTexture(depth);
                 builder.SetRenderAttachment(resources.activeColorTexture, 0);
-                builder.SetRenderAttachmentDepth(resources.activeDepthTexture);
+                if (primed)
+                {
+                    // The primed attachment already holds the final depth; only its stencil mask is read.
+                    builder.SetRenderAttachmentDepth(resources.activeDepthTexture, AccessFlags.Read);
+                    builder.UseTexture(resources.cameraDepthTexture);
+                }
+                else
+                {
+                    builder.SetRenderAttachmentDepth(resources.activeDepthTexture);
+                }
+
                 builder.AllowGlobalStateModification(true);
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc(static (CompositeData pass, RasterGraphContext context) =>
@@ -138,7 +163,8 @@ namespace Impostors
                     pass.Material.SetTexture(ImpostorDepth, pass.Depth);
                     pass.Material.SetVector(ImpostorSize, pass.Size);
                     pass.Material.SetFloat(ImpostorSharpness, pass.Sharpness);
-                    Blitter.BlitTexture(context.cmd, new Vector4(1, 1, 0, 0), pass.Material, 0);
+                    pass.Material.SetFloat(ImpostorShaderProperties.StencilRef, pass.StencilRef);
+                    Blitter.BlitTexture(context.cmd, new Vector4(1, 1, 0, 0), pass.Material, pass.ShaderPass);
                 });
             }
 
@@ -159,6 +185,8 @@ namespace Impostors
                 public Vector4 Size;
                 public float Sharpness;
                 public Material Material;
+                public int ShaderPass;
+                public float StencilRef;
             }
         }
     }

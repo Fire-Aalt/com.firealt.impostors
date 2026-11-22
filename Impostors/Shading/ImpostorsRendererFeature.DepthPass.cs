@@ -13,9 +13,26 @@ namespace Impostors
     {
         private static readonly int OwnsPrepass = Shader.PropertyToID("_ImpostorOwnsPrepass");
         private static readonly int SceneDepthTest = Shader.PropertyToID("_ImpostorSceneDepthTest");
+        private static readonly int DepthPrimed = Shader.PropertyToID("_ImpostorDepthPrimed");
+
+        private static System.Func<ScriptableRenderer, bool> _useDepthPriming;
+        private static bool _useDepthPrimingResolved;
+
+        private enum PrepassOwnership
+        {
+            None,
+
+            /// <summary>URP's prepass draws into a depth-format camera depth texture, which the package extends.</summary>
+            Classic,
+
+            /// <summary>URP primes the camera depth attachment and copies it to the depth texture afterwards.</summary>
+            Primed,
+        }
+
+        private static bool R32Renderable => SystemInfo.IsFormatSupported(GraphicsFormat.R32_SFloat, GraphicsFormatUsage.Render);
 
         /// <summary>Whether URP's prepass renders straight into a depth-format camera depth texture the package can extend.</summary>
-        private static bool CanOwnPrepass(RenderGraph graph, UniversalResourceData resources, UniversalCameraData camera)
+        private static bool CanOwnPrepass(RenderGraph graph, UniversalResourceData resources)
         {
             if (resources.isActiveTargetBackBuffer || !resources.cameraDepthTexture.IsValid())
             {
@@ -24,36 +41,130 @@ namespace Impostors
 
             // URP gives the depth texture a depth format only when its forward prepass draws into it directly
             // (no deferred, no depth priming, no copy), unless the platform cannot render to R32_SFloat at all.
-            bool r32Renderable = SystemInfo.IsFormatSupported(GraphicsFormat.R32_SFloat, GraphicsFormatUsage.Render);
-            return r32Renderable && GraphicsFormatUtility.IsDepthFormat(graph.GetTextureDesc(resources.cameraDepthTexture).format);
+            return R32Renderable && GraphicsFormatUtility.IsDepthFormat(graph.GetTextureDesc(resources.cameraDepthTexture).format);
+        }
+
+        /// <summary>Whether impostor depth can be added to a primed depth attachment and copied on to the depth texture.</summary>
+        private static bool CanOwnPrimedPrepass(RenderGraph graph, UniversalResourceData resources)
+        {
+            return !resources.isActiveTargetBackBuffer && resources.activeDepthTexture.IsValid() && R32Renderable
+                && GraphicsFormatUtility.IsDepthFormat(graph.GetTextureDesc(resources.activeDepthTexture).format);
+        }
+
+        private static bool HasStencil(RenderGraph graph, UniversalResourceData resources)
+        {
+            return !resources.isActiveTargetBackBuffer && resources.activeDepthTexture.IsValid()
+                && GraphicsFormatUtility.IsStencilFormat(graph.GetTextureDesc(resources.activeDepthTexture).format);
+        }
+
+        /// <summary>Whether URP primes the depth attachment for this camera. Valid from its prepass events on.</summary>
+        private static bool IsPrimed(UniversalCameraData camera)
+        {
+            if (!_useDepthPrimingResolved)
+            {
+                _useDepthPrimingResolved = true;
+                System.Reflection.MethodInfo getter = typeof(ScriptableRenderer).GetProperty("useDepthPriming",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetGetMethod(true);
+                if (getter != null)
+                {
+                    _useDepthPriming = (System.Func<ScriptableRenderer, bool>)System.Delegate.CreateDelegate(
+                        typeof(System.Func<ScriptableRenderer, bool>), getter);
+                }
+                else
+                {
+                    Debug.LogWarning("Impostors: URP no longer exposes ScriptableRenderer.useDepthPriming, so impostors render "
+                        + "as if depth priming were off. Disable depth priming on the renderer if trees lose pixels.");
+                }
+            }
+
+            return _useDepthPriming != null && camera.renderer != null && _useDepthPriming(camera.renderer);
+        }
+
+        /// <summary>
+        /// Predicts URP's priming decision, which it makes after the render passes are added, so the depth texture can be
+        /// requested early enough. A false positive costs a depth copy; a false negative keeps the unprimed shading.
+        /// </summary>
+        private static bool MayPrime(ScriptableRenderer renderer, in CameraData camera)
+        {
+            return renderer is UniversalRenderer { depthPrimingMode: not DepthPrimingMode.Disabled }
+                && camera.cameraTargetDescriptor.msaaSamples == 1
+                && (camera.renderType == CameraRenderType.Base || camera.clearDepth);
         }
 
         /// <summary>
         /// Runs before URP's prepass and decides whether impostors leave it. Impostors write per-pixel depth, which
         /// costs hardware early-Z wherever conservative depth is unavailable, so inside URP's prepass every hidden
-        /// impostor fragment was fully reconstructed.
+        /// impostor fragment was fully reconstructed. Also tells forward impostors whether URP primes depth.
         /// </summary>
         [NoAutoStaticsCleanup]
         private sealed class PrepassHandoffPass : ScriptableRenderPass
         {
             private const string PASS_NAME = "Impostors Prepass Handoff";
 
-            public bool Owned;
+            private static bool _stencilWarningLogged;
+
+            private bool _ownDepth;
+            private bool _offscreen;
+            private int _stencilBit;
+
+            public PrepassOwnership Owned { get; private set; }
+
+            /// <summary>Whether impostors are shaded into the offscreen buffer for this camera.</summary>
+            public bool OffscreenActive { get; private set; }
+
+            /// <summary>Whether the offscreen buffer is composited through the primed stencil mask.</summary>
+            public bool PrimedComposite { get; private set; }
+
+            public void Setup(bool ownDepth, bool mayPrime, bool offscreen, int stencilBit)
+            {
+                _ownDepth = ownDepth;
+                _offscreen = offscreen;
+                _stencilBit = stencilBit;
+                // Primed forward impostors read the depth texture in URP's opaque pass, so its copy must follow the prepass.
+                ConfigureInput(mayPrime ? ScriptableRenderPassInput.Depth : ScriptableRenderPassInput.None);
+            }
 
             public override void RecordRenderGraph(RenderGraph graph, ContextContainer frameData)
             {
-                Owned = CanOwnPrepass(graph, frameData.Get<UniversalResourceData>(), frameData.Get<UniversalCameraData>());
+                var resources = frameData.Get<UniversalResourceData>();
+                bool primed = IsPrimed(frameData.Get<UniversalCameraData>()) && resources.cameraDepthTexture.IsValid();
+                Owned = !_ownDepth ? PrepassOwnership.None
+                    : primed ? CanOwnPrimedPrepass(graph, resources) ? PrepassOwnership.Primed : PrepassOwnership.None
+                    : CanOwnPrepass(graph, resources) ? PrepassOwnership.Classic : PrepassOwnership.None;
+
+                OffscreenActive = _offscreen;
+                PrimedComposite = _offscreen && primed && HasStencil(graph, resources);
+                if (_offscreen && primed && !PrimedComposite)
+                {
+                    OffscreenActive = false;
+                    if (!_stencilWarningLogged)
+                    {
+                        _stencilWarningLogged = true;
+                        Debug.LogWarning("Impostors: Render Scale below 1 needs a depth attachment with stencil while URP primes "
+                            + "depth, so impostors render at native resolution. Use a depth-stencil Depth Attachment Format.");
+                    }
+                }
+
+                // Material pass state is read when URP builds its renderer lists, after this camera's passes are recorded.
+                ImpostorWorldRenderer.SetOffscreenShading(OffscreenActive);
+                ImpostorWorldRenderer.SetPrimedStencilBit(PrimedComposite ? _stencilBit : 0);
+
                 using IUnsafeRenderGraphBuilder builder = graph.AddUnsafePass(PASS_NAME, out HandoffData data);
-                data.Owned = Owned ? 1 : 0;
+                data.Owned = Owned != PrepassOwnership.None ? 1 : 0;
+                data.Primed = primed ? 1 : 0;
                 builder.AllowGlobalStateModification(true);
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc(static (HandoffData pass, UnsafeGraphContext context) =>
-                    context.cmd.SetGlobalFloat(OwnsPrepass, pass.Owned));
+                {
+                    context.cmd.SetGlobalFloat(OwnsPrepass, pass.Owned);
+                    context.cmd.SetGlobalFloat(DepthPrimed, pass.Primed);
+                });
             }
 
             private sealed class HandoffData
             {
                 public float Owned;
+                public float Primed;
             }
         }
 
@@ -65,6 +176,7 @@ namespace Impostors
         private sealed class DepthPass : ScriptableRenderPass
         {
             private const string COPY_PASS_NAME = "Impostors Copy Opaque Depth";
+            private const string REFRESH_PASS_NAME = "Impostors Refresh Depth Texture";
             private const string DRAW_PASS_NAME = "Impostors Depth";
             private const string OPAQUE_DEPTH_NAME = "_ImpostorOpaqueDepth";
             private const int COPY_SHADER_PASS = 1;
@@ -98,7 +210,7 @@ namespace Impostors
 
             public override void RecordRenderGraph(RenderGraph graph, ContextContainer frameData)
             {
-                if (!_handoff.Owned)
+                if (_handoff.Owned == PrepassOwnership.None)
                 {
                     return;
                 }
@@ -107,19 +219,25 @@ namespace Impostors
                 var camera = frameData.Get<UniversalCameraData>();
                 var rendering = frameData.Get<UniversalRenderingData>();
                 var lights = frameData.Get<UniversalLightData>();
-                TextureHandle depth = resources.cameraDepthTexture;
+                bool primed = _handoff.Owned == PrepassOwnership.Primed;
+                // A primed prepass fills the depth attachment, and URP has already copied it, opaques only, to the texture.
+                TextureHandle depth = primed ? resources.activeDepthTexture : resources.cameraDepthTexture;
                 // In forward paths the normals texture exists only when URP's prepass writes it.
                 TextureHandle normals = resources.cameraNormalsTexture;
                 bool writeNormals = normals.IsValid();
 
-                TextureDesc copyDescriptor = graph.GetTextureDesc(depth);
-                copyDescriptor.name = OPAQUE_DEPTH_NAME;
-                copyDescriptor.format = GraphicsFormat.R32_SFloat;
-                copyDescriptor.msaaSamples = MSAASamples.None;
-                copyDescriptor.bindTextureMS = false;
-                copyDescriptor.clearBuffer = false;
-                copyDescriptor.filterMode = FilterMode.Point;
-                TextureHandle opaqueDepth = graph.CreateTexture(copyDescriptor);
+                TextureHandle opaqueDepth = TextureHandle.nullHandle;
+                if (!primed || _bands > 1)
+                {
+                    TextureDesc copyDescriptor = graph.GetTextureDesc(depth);
+                    copyDescriptor.name = OPAQUE_DEPTH_NAME;
+                    copyDescriptor.format = GraphicsFormat.R32_SFloat;
+                    copyDescriptor.msaaSamples = MSAASamples.None;
+                    copyDescriptor.bindTextureMS = false;
+                    copyDescriptor.clearBuffer = false;
+                    copyDescriptor.filterMode = FilterMode.Point;
+                    opaqueDepth = graph.CreateTexture(copyDescriptor);
+                }
 
                 DrawingSettings drawing = RenderingUtils.CreateDrawingSettings(writeNormals ? DepthNormalsTag : DepthTag,
                     rendering, camera, lights, SortingCriteria.CommonOpaque);
@@ -132,14 +250,29 @@ namespace Impostors
                     uint layers = _bands == 1 ? uint.MaxValue
                         : ImpostorLodSelection.DepthBucketLayers(band * bucketCount / _bands, (band + 1) * bucketCount / _bands);
                     var filtering = new FilteringSettings(RenderQueueRange.opaque, -1, layers);
-                    AddCopyPass(graph, depth, opaqueDepth);
+                    TextureHandle bandDepth = opaqueDepth;
+                    if (primed && band == 0)
+                    {
+                        bandDepth = resources.cameraDepthTexture;
+                    }
+                    else
+                    {
+                        AddCopyPass(graph, depth, opaqueDepth, false);
+                    }
+
                     AddDrawPass(graph, new RendererListParams(rendering.cullResults, drawing, filtering), depth,
-                        writeNormals ? normals : TextureHandle.nullHandle, opaqueDepth, band == _bands - 1);
+                        writeNormals ? normals : TextureHandle.nullHandle, bandDepth, band == _bands - 1, !primed);
+                }
+
+                if (primed)
+                {
+                    // URP's opaque pass reads the impostor depth from the texture while the attachment stays bound.
+                    AddCopyPass(graph, depth, resources.cameraDepthTexture, true);
                 }
 
                 if (_occlusion && camera.cameraType == CameraType.Game)
                 {
-                    AddOcclusionCapture(graph, camera, depth);
+                    AddOcclusionCapture(graph, camera, resources.cameraDepthTexture);
                 }
             }
 
@@ -198,20 +331,26 @@ namespace Impostors
                 }
             }
 
-            private void AddCopyPass(RenderGraph graph, TextureHandle depth, TextureHandle opaqueDepth)
+            private void AddCopyPass(RenderGraph graph, TextureHandle depth, TextureHandle target, bool depthTexture)
             {
-                using IRasterRenderGraphBuilder builder = graph.AddRasterRenderPass(COPY_PASS_NAME, out CopyData copy);
+                using IRasterRenderGraphBuilder builder = graph.AddRasterRenderPass(depthTexture ? REFRESH_PASS_NAME : COPY_PASS_NAME,
+                    out CopyData copy);
                 copy.Source = depth;
                 copy.Material = _copy;
                 builder.UseTexture(depth);
-                builder.SetRenderAttachment(opaqueDepth, 0);
+                builder.SetRenderAttachment(target, 0);
+                if (depthTexture)
+                {
+                    builder.SetGlobalTextureAfterPass(target, CameraDepthTexture);
+                }
+
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc(static (CopyData pass, RasterGraphContext context) =>
                     Blitter.BlitTexture(context.cmd, pass.Source, new Vector4(1, 1, 0, 0), pass.Material, COPY_SHADER_PASS));
             }
 
             private static void AddDrawPass(RenderGraph graph, RendererListParams parameters, TextureHandle depth,
-                TextureHandle normals, TextureHandle opaqueDepth, bool last)
+                TextureHandle normals, TextureHandle opaqueDepth, bool last, bool depthIsTexture)
             {
                 using IRasterRenderGraphBuilder builder = graph.AddRasterRenderPass(DRAW_PASS_NAME, out DrawData draw);
                 draw.Renderers = graph.CreateRendererList(parameters);
@@ -226,7 +365,11 @@ namespace Impostors
                 }
 
                 builder.SetRenderAttachmentDepth(depth);
-                builder.SetGlobalTextureAfterPass(depth, CameraDepthTexture);
+                if (depthIsTexture)
+                {
+                    builder.SetGlobalTextureAfterPass(depth, CameraDepthTexture);
+                }
+
                 builder.AllowGlobalStateModification(true);
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc(static (DrawData pass, RasterGraphContext context) =>
@@ -273,7 +416,7 @@ namespace Impostors
             }
         }
     
-        /// <summary>Ends the window in which forward impostors may test against the camera depth texture.</summary>
+        /// <summary>Ends the window in which forward impostors may test against the camera depth texture or match primed depth.</summary>
         [NoAutoStaticsCleanup]
         private sealed class SceneDepthResetPass : ScriptableRenderPass
         {
@@ -285,7 +428,10 @@ namespace Impostors
                 builder.AllowGlobalStateModification(true);
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc(static (ResetData _, UnsafeGraphContext context) =>
-                    context.cmd.SetGlobalFloat(SceneDepthTest, 0));
+                {
+                    context.cmd.SetGlobalFloat(SceneDepthTest, 0);
+                    context.cmd.SetGlobalFloat(DepthPrimed, 0);
+                });
             }
 
             private sealed class ResetData

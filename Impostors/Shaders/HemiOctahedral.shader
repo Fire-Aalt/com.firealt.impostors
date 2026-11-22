@@ -34,6 +34,8 @@ Shader "Impostors/Hemi Octahedral" {
  _SelfShadowPower("Self-shadow response",Range(0.25,2))=1
  _ShadowReceiverBias("Realtime shadow receiver bias",Range(0,0.2))=0.05
  [HideInInspector] _ImpostorLiveShadows("Casts realtime shadows",Float)=0
+ [HideInInspector] _ImpostorStencilRef("Stencil reference",Float)=0
+ [HideInInspector] _ImpostorStencilWriteMask("Stencil write mask",Float)=0
  _DetailFullPixels("Full detail above (px)",Range(0,1024))=160
  _DetailReducedPixels("Lowest detail below (px)",Range(0,1024))=64
  [HideInInspector] _SelfShadowVolume("Prefiltered self visibility",3D)="white"{}
@@ -70,8 +72,11 @@ Shader "Impostors/Hemi Octahedral" {
  ENDHLSL
  }
  Pass {AlphaToMask On Name "DepthOnly" Tags{"LightMode"="DepthOnly"} ColorMask R
+ Stencil{Ref[_ImpostorStencilRef] WriteMask[_ImpostorStencilWriteMask] Comp Always Pass Replace}
  HLSLPROGRAM
  #pragma target 5.0
+ // URP's opaque pass only keeps impostor pixels that this pass wrote, so it must never be skipped while compiling.
+ #pragma editor_sync_compilation
  #pragma multi_compile _ LOD_FADE_CROSSFADE
  #pragma vertex Vert
  #pragma fragment Frag
@@ -82,8 +87,10 @@ Shader "Impostors/Hemi Octahedral" {
  ENDHLSL
  }
  Pass {AlphaToMask On Name "DepthNormals" Tags{"LightMode"="DepthNormalsOnly"}
+ Stencil{Ref[_ImpostorStencilRef] WriteMask[_ImpostorStencilWriteMask] Comp Always Pass Replace}
  HLSLPROGRAM
  #pragma target 5.0
+ #pragma editor_sync_compilation
  #pragma multi_compile _ LOD_FADE_CROSSFADE
  #pragma vertex Vert
  #pragma fragment Frag
@@ -96,8 +103,10 @@ Shader "Impostors/Hemi Octahedral" {
  ENDHLSL
  }
  Pass {AlphaToMask On Name "ImpostorDepthOnly" Tags{"LightMode"="ImpostorDepthOnly"} ColorMask R
+ Stencil{Ref[_ImpostorStencilRef] WriteMask[_ImpostorStencilWriteMask] Comp Always Pass Replace}
  HLSLPROGRAM
  #pragma target 5.0
+ #pragma editor_sync_compilation
  #pragma multi_compile _ LOD_FADE_CROSSFADE
  #pragma vertex Vert
  #pragma fragment Frag
@@ -108,8 +117,10 @@ Shader "Impostors/Hemi Octahedral" {
  ENDHLSL
  }
  Pass {AlphaToMask On Name "ImpostorDepthNormals" Tags{"LightMode"="ImpostorDepthNormals"}
+ Stencil{Ref[_ImpostorStencilRef] WriteMask[_ImpostorStencilWriteMask] Comp Always Pass Replace}
  HLSLPROGRAM
  #pragma target 5.0
+ #pragma editor_sync_compilation
  #pragma multi_compile _ LOD_FADE_CROSSFADE
  #pragma vertex Vert
  #pragma fragment Frag

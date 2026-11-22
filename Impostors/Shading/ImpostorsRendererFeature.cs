@@ -25,9 +25,15 @@ namespace Impostors
         private static float _cullingDistance;
 
         [Tooltip("Resolution of the impostor shading buffer relative to the camera. 1 renders impostors natively in "
-            + "URP's opaque pass. Impostors crossfading with a mesh LOD are always native.")]
+            + "URP's opaque pass. Impostors crossfading with a mesh LOD are always native. While URP primes depth, the buffer "
+            + "is composited through a stencil mask over native impostor depth, which needs a depth attachment with stencil.")]
         [Range(.1f, 1)]
         public float RenderScale = 1;
+
+        [Tooltip("Bit of URP's user stencil bits (0-3) that marks visible impostors for the offscreen composite while URP "
+            + "primes depth. Only written when Render Scale is below 1.")]
+        [Range(0, 3)]
+        public int PrimedStencilBit = 3;
 
         [Tooltip("Contrast-adaptive sharpening applied while upscaling the impostor buffer. Has no effect at Render Scale 1.")]
         [Range(0, 1)]
@@ -120,36 +126,37 @@ namespace Impostors
             // One global per camera, shared by every tree. No material updates or extra rendering pass.
             Shader.SetGlobalFloat(ShadowStrength, main ? Mathf.Clamp01(main.shadowStrength) : 0);
 
+            bool mayPrime = MayPrime(renderer, renderingData.cameraData);
             bool offscreen = UsesOffscreenShading(renderingData.cameraData);
             ImpostorWorldRenderer.SetOffscreenShading(offscreen);
             bool ownDepth = UsesOwnedDepth(renderingData.cameraData);
-            if (!offscreen && !ownDepth)
+            if (!offscreen && !ownDepth && !mayPrime)
             {
+                ImpostorWorldRenderer.SetPrimedStencilBit(0);
                 return;
             }
 
-            if (!_composite)
+            if (!_composite && (offscreen || ownDepth))
             {
                 _composite = CoreUtils.CreateEngineMaterial(_compositeShader);
             }
 
+            int stencilBit = 1 << Mathf.Clamp(PrimedStencilBit, 0, 3);
+            _handoffPass.Setup(ownDepth, mayPrime, offscreen, stencilBit);
+            renderer.EnqueuePass(_handoffPass);
             if (ownDepth)
             {
                 _depthPass.Setup(_handoffPass, _composite, DepthBands, OcclusionCulling ? _occlusionShader : null);
-                renderer.EnqueuePass(_handoffPass);
                 renderer.EnqueuePass(_depthPass);
             }
 
             if (offscreen)
             {
-                _offscreenPass.Setup(RenderScale, Sharpness, Msaa, _composite);
+                _offscreenPass.Setup(_handoffPass, RenderScale, Sharpness, Msaa, _composite, stencilBit);
                 renderer.EnqueuePass(_offscreenPass);
             }
 
-            if (ownDepth)
-            {
-                renderer.EnqueuePass(_resetPass);
-            }
+            renderer.EnqueuePass(_resetPass);
         }
 
         private void ApplyGlobalSettings()
@@ -175,6 +182,7 @@ namespace Impostors
         protected override void Dispose(bool disposing)
         {
             ImpostorWorldRenderer.SetOffscreenShading(false);
+            ImpostorWorldRenderer.SetPrimedStencilBit(0);
             CoreUtils.Destroy(_composite);
         }
 

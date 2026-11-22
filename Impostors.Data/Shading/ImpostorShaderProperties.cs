@@ -139,6 +139,12 @@ namespace Impostors.Data
         public const string LIVE_SHADOWS_NAME = "_ImpostorLiveShadows";
         public static readonly int LiveShadows = Shader.PropertyToID(LIVE_SHADOWS_NAME);
 
+        public const string STENCIL_REF_NAME = "_ImpostorStencilRef";
+        public static readonly int StencilRef = Shader.PropertyToID(STENCIL_REF_NAME);
+
+        public const string STENCIL_WRITE_MASK_NAME = "_ImpostorStencilWriteMask";
+        public static readonly int StencilWriteMask = Shader.PropertyToID(STENCIL_WRITE_MASK_NAME);
+
         public const string SELF_SHADOW_STRENGTH_NAME = "_SelfShadowStrength";
         public static readonly int SelfShadowStrength = Shader.PropertyToID(SELF_SHADOW_STRENGTH_NAME);
 
