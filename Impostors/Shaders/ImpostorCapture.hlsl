@@ -35,6 +35,12 @@ void ImpostorCapture(float3 BaseColor, float3 Normal, float Metallic, float3 Spe
     BaseColorOut=BaseColor;NormalOut=Normal;MetallicOut=Metallic;SpecularOut=Specular;
     SmoothnessOut=Smoothness;OcclusionOut=Occlusion;EmissionOut=Emission;
     AlphaOut=Alpha;AlphaClipThresholdOut=AlphaClipThreshold;
+#if defined(_ALPHATEST_ON) && !defined(SHADERGRAPH_PREVIEW)
+    // URP's forward pass keeps alpha-to-coverage on without MSAA, where it can drop partially transparent pixels
+    // that the depth prepass kept. Under depth priming those become holes, so pass a binary alpha unless MSAA is on.
+    if (!IsAlphaToMaskAvailable())
+        AlphaOut=Alpha>=AlphaClipThreshold?1:0;
+#endif
 #if defined(_ImpostorCaptureEnabled) && !defined(SHADERGRAPH_PREVIEW)
     if (CaptureEnabled)
     {

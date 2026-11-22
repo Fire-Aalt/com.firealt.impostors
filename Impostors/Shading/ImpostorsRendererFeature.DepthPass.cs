@@ -12,6 +12,7 @@ namespace Impostors
     public sealed partial class ImpostorsRendererFeature
     {
         private static readonly int OwnsPrepass = Shader.PropertyToID("_ImpostorOwnsPrepass");
+        private static readonly int AlphaToMaskAvailable = Shader.PropertyToID("_AlphaToMaskAvailable");
         private static readonly int SceneDepthTest = Shader.PropertyToID("_ImpostorSceneDepthTest");
         private static readonly int DepthPrimed = Shader.PropertyToID("_ImpostorDepthPrimed");
 
@@ -152,12 +153,16 @@ namespace Impostors
                 using IUnsafeRenderGraphBuilder builder = graph.AddUnsafePass(PASS_NAME, out HandoffData data);
                 data.Owned = Owned != PrepassOwnership.None ? 1 : 0;
                 data.Primed = primed ? 1 : 0;
+                data.AlphaToMask = frameData.Get<UniversalCameraData>().cameraTargetDescriptor.msaaSamples > 1 ? 1 : 0;
                 builder.AllowGlobalStateModification(true);
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc(static (HandoffData pass, UnsafeGraphContext context) =>
                 {
                     context.cmd.SetGlobalFloat(OwnsPrepass, pass.Owned);
                     context.cmd.SetGlobalFloat(DepthPrimed, pass.Primed);
+                    // URP sets this only in its draw-objects passes, so prepasses inherit whatever another camera or pass
+                    // left. Alpha-clipped prepass draws must clip exactly like the opaque pass, which primed depth requires.
+                    context.cmd.SetGlobalFloat(AlphaToMaskAvailable, pass.AlphaToMask);
                 });
             }
 
@@ -165,6 +170,7 @@ namespace Impostors
             {
                 public float Owned;
                 public float Primed;
+                public float AlphaToMask;
             }
         }
 
