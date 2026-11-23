@@ -279,7 +279,7 @@ namespace Impostors.Tests
                             continue;
                         }
 
-                        int fade = q >= 1 ? 0 : Mathf.Clamp(Mathf.CeilToInt((q - 1 + transition.FadeWidth) / transition.FadeWidth * 127), 1, 127);
+                        int fade = q >= 1 ? 0 : Mathf.Clamp(Mathf.CeilToInt((q - 1 + transition.FadeWidth) / transition.FadeWidth * 127), 1, 126);
                         expected.Add((level, slots[b].Value, mask, fade));
                         if (fade != 0)
                         {

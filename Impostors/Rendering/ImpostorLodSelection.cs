@@ -70,9 +70,12 @@ namespace Impostors
             return new LodSelection { Level = first + count - 1, HighDetailOpacity = 1 };
         }
 
+        // At 127 the fade equals the dither texture's 255 texels exactly, so URP's crossfade test sits on its boundary and
+        // FMA contraction decides it, differently in depth and forward passes. Under depth priming that leaves unshaded
+        // pixels. Up to 126 every fade stays at least 1/(127*255) away from all dither values.
         public static byte QuantizeOpacity(float highOpacity)
         {
-            return (byte)math.clamp((int)math.ceil(highOpacity * MAXIMUM_OPACITY), 1, MAXIMUM_OPACITY);
+            return (byte)math.clamp((int)math.ceil(highOpacity * MAXIMUM_OPACITY), 1, MAXIMUM_OPACITY - 1);
         }
 
         /// <summary>Packs a visible-instance index with the signed crossfade value BRG reads from its top byte.</summary>
