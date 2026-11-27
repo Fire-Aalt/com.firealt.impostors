@@ -78,10 +78,12 @@ namespace Impostors
         private DepthPass _depthPass;
         private SceneDepthResetPass _resetPass;
         private ComputeShader _occlusionShader;
+        private bool _featureOrderChecked;
 
         public override void Create()
         {
             ApplyGlobalSettings();
+            _featureOrderChecked = false;
             _occlusionShader = Resources.Load<ComputeShader>("ImpostorOcclusion");
             _noAdditionalLights = GlobalKeyword.Create(ImpostorShaderKeywords.NO_ADDITIONAL_LIGHTS);
             if (!_compositeShader)
@@ -151,11 +153,40 @@ namespace Impostors
 
             if (offscreen)
             {
+                WarnIfAfterAmbientOcclusion();
                 _offscreenPass.Setup(_handoffPass, RenderScale, Sharpness, Msaa, _composite, stencilBit);
                 renderer.EnqueuePass(_offscreenPass);
             }
 
             renderer.EnqueuePass(_resetPass);
+        }
+
+        /// <summary>
+        /// After Opaque ambient occlusion darkens the camera color at the same event the offscreen buffer is composited,
+        /// and URP orders passes of one event by feature order. Composited after it, impostors miss the occlusion that
+        /// their crossfading mesh LODs and native impostors receive, so trees brighten as they finish crossfading.
+        /// </summary>
+        private void WarnIfAfterAmbientOcclusion()
+        {
+            if (_featureOrderChecked || GraphicsSettings.currentRenderPipeline is not UniversalRenderPipelineAsset pipeline)
+            {
+                return;
+            }
+
+            _featureOrderChecked = true;
+            foreach (ScriptableRendererData data in pipeline.rendererDataList)
+            {
+                int own = data ? data.rendererFeatures.IndexOf(this) : -1;
+                int ambientOcclusion = own > 0
+                    ? data.rendererFeatures.FindIndex(feature => feature is ScreenSpaceAmbientOcclusion { isActive: true })
+                    : -1;
+                if (ambientOcclusion >= 0 && ambientOcclusion < own)
+                {
+                    Debug.LogWarning($"Impostors: move \"{name}\" above \"{data.rendererFeatures[ambientOcclusion].name}\" "
+                        + $"in \"{data.name}\". With After Opaque ambient occlusion and Render Scale below 1, impostors "
+                        + "composited after it are not occluded and brighten when trees finish crossfading.", data);
+                }
+            }
         }
 
         private void ApplyGlobalSettings()
